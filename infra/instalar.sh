@@ -90,6 +90,16 @@ if [ -f datos-iniciales/carga.json ]; then
   ) || echo "== AVISO: no se pudo hacer la carga de tareas."
 fi
 
+# Alta de obras pedida por el dueño (datos-iniciales/altas.json): una sola vez por identificador. Si falla, la instalación sigue.
+if [ -f datos-iniciales/altas.json ]; then
+  echo "== Alta de obras"
+  (
+    set -a; . /etc/obras/obras.env; set +a
+    runuser -u obras -- env URL_BASE="${URL_BASE:-}" DIR_DATOS=/var/lib/obras \
+      "$NODE" --disable-warning=ExperimentalWarning servidor/altas-cli.js
+  ) || echo "== AVISO: no se pudo hacer el alta de obras."
+fi
+
 # Demostración: si el repo trae datos-iniciales/demo.json, deja cargadas las obras de ejemplo con ese arquitecto.
 # Corre como el usuario de la app, para que la base y las fotos queden a su nombre. Si falla, la instalación sigue.
 if [ -f datos-iniciales/demo.json ]; then

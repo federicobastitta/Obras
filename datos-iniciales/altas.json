@@ -1,0 +1,31 @@
+{
+ "id": "2026-11-25-sedes-diagnosticar",
+ "propietario": "Diagnosticar",
+ "archivo": "acceso-diagnosticar.txt",
+ "obras": [
+  {
+   "nombre": "Sede Central",
+   "tipo": "Clínica o consultorio"
+  },
+  {
+   "nombre": "Lanús",
+   "tipo": "Clínica o consultorio"
+  },
+  {
+   "nombre": "Lomas",
+   "tipo": "Clínica o consultorio"
+  },
+  {
+   "nombre": "Centro Cardiológico",
+   "tipo": "Clínica o consultorio"
+  },
+  {
+   "nombre": "Centro de la Mujer",
+   "tipo": "Clínica o consultorio"
+  },
+  {
+   "nombre": "Kinesiología",
+   "tipo": "Clínica o consultorio"
+  }
+ ]
+}

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crearApp } from '../servidor/app.js';
-import { crearObra, abrirBase, cargarTareas } from '../servidor/db.js';
+import { crearObra, abrirBase, cargarTareas, altaDeObras } from '../servidor/db.js';
 import { asegurarDemo } from '../servidor/demo.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -360,4 +360,18 @@ test('carga de tareas por lista: una sola vez, en la obra vacía o en la que tie
   const nueva = cargarTareas(base2, { id: 'c3', obra: 'Quincho', tareas: [{ texto: 'Parrilla' }], propietario: 'Dueña' });
   assert.ok(nueva.hecho && /^[0-9a-f]{48}$/.test(nueva.token));
   assert.equal(base2.prepare('SELECT COUNT(*) AS n FROM obras').get().n, 2);
+});
+
+test('alta de obras con un propietario: una sola vez, vacías y con acceso propio', async () => {
+  const obras = [{ nombre: 'Sede de prueba A', tipo: 'Clínica o consultorio' }, { nombre: 'Sede de prueba B', tipo: 'Clínica o consultorio' }];
+  const r = altaDeObras(db, { id: 'alta-prueba', propietario: 'Diagnosticar', obras });
+  assert.equal(r.tokens.length, 2);
+  for (const [i, o] of obras.entries()) {
+    const yo = (await pedir(r.tokens[i], 'GET', '/api/yo')).datos;
+    assert.deepEqual([yo.persona.nombre, yo.persona.rol, yo.obra.nombre, yo.obra.tipo, yo.obra.demo], ['Diagnosticar', 'propietario', o.nombre, o.tipo, false]);
+    assert.equal((await pedir(r.tokens[i], 'GET', '/api/tareas')).datos.tareas.length, 0);
+  }
+  assert.equal((await pedir(r.tokens[0], 'GET', '/api/tareas/' + tareaId)).codigo, 404, 'no ve las obras de otros');
+  assert.deepEqual(altaDeObras(db, { id: 'alta-prueba', propietario: 'Diagnosticar', obras }), { hecho: false, tokens: [] });
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM obras WHERE nombre LIKE 'Sede de prueba %'").get().n, 2);
 });
