@@ -105,6 +105,9 @@ test('fotos y comentarios', async () => {
   const t = (await pedir(duena, 'GET', '/api/tareas')).datos.tareas[0];
   assert.equal(t.fotos, 1);
   assert.equal(t.comentarios, 1);
+  const ultimas = (await pedir(duena, 'GET', '/api/fotos')).datos.fotos;
+  assert.deepEqual(ultimas.map((f) => [f.id, f.tarea_id, f.momento, f.persona]), [[sub.datos.id, tareaId, 'despues', 'Constructor']]);
+  assert.deepEqual((await pedir(otra.token, 'GET', '/api/fotos')).datos.fotos, [], 'otra obra no las ve');
   assert.equal((await pedir(duena, 'DELETE', '/api/fotos/' + sub.datos.id)).codigo, 200);
 });
 
@@ -168,6 +171,10 @@ test('proveedores: entran con su link y ven solo el trabajo que se les encargó'
   assert.equal((await pedir(plomero, 'GET', '/api/tareas/' + tareaId)).codigo, 404, 'no ve tareas ajenas');
   assert.equal((await pedir(plomero, 'POST', `/api/tareas/${tareaId}/comentarios`, { texto: 'hola' })).codigo, 404);
   assert.equal((await pedir(plomero, 'GET', '/api/personas')).codigo, 403);
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(32, 2)]);
+  const ajena = (await pedir(duena, 'POST', `/api/tareas/${tareaId}/fotos`, jpg)).datos.id;
+  assert.deepEqual((await pedir(plomero, 'GET', '/api/fotos')).datos.fotos, [], 'no ve fotos de trabajos ajenos');
+  assert.ok(!(await pedir(duena, 'GET', '/api/fotos')).datos.fotos.some((f) => f.id === ajena), 'las que sube la dirección no van al Inicio');
   const gruposAjenos = (await pedir(duena, 'GET', '/api/tareas')).datos.grupos;
   assert.equal((await pedir(plomero, 'GET', '/api/grupos/' + gruposAjenos[0].id)).codigo, 404);
 
