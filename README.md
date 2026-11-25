@@ -20,6 +20,10 @@ Se instala en el celular (PWA) y cada persona entra con su link personal, sin co
   respuesta, plazos vencidos y saldo. Desde ahí se crean obras nuevas y se entra a cada una.
 - Proveedores: desde Inicio se da de alta un proveedor (plomero, electricista…) con el trabajo que se le encarga en
   una obra. Recibe un link y ve solo ese trabajo: lo presupuesta, le pone fecha, sube fotos y lo marca al terminar.
+- Datos de demostración: desde Inicio, el cuadro «Datos de demo» crea dos obras de ejemplo (Casa Los Álamos y Clínica
+  Norte) con tareas en todos los estados, presupuestos por tarea y en grupo, pagos, fotos, archivos, proveedores y
+  comentarios. Llevan la marca «Demo», no tocan las obras reales y se borran con «Quitar la demo».
+- Las fotos se mueven al inclinar el celular (en iPhone aparece un botón para dar el permiso del sensor).
 - Quien llega sin link ve una página que explica la app, pensada para un arquitecto.
 - Resumen: avance, tareas con plazo vencido y plata presupuestada, aprobada, pagada y saldo por lugar.
 
@@ -28,7 +32,9 @@ Estados de una tarea: sin presupuesto → presupuesto a aprobar → aprobada →
 ## Cómo está hecha
 
 - `servidor/`: Node 22 sin dependencias (`node:http` y `node:sqlite`). La base y las fotos van a la carpeta de datos.
-- `web/`: las pantallas, en JavaScript simple, sin paso de compilación.
+- `web/`: las pantallas, en JavaScript simple, sin paso de compilación. Diseño: hoja de plano (hormigón, tinta, cinta
+  métrica amarilla como indicador de avance, solapa de carpeta por tipo de obra). Tipografías Carlito y Caladea incluidas
+  en `web/fuentes/` (licencia OFL), así la app no depende de ningún sitio externo.
 - `pruebas/`: pruebas del servidor (`npm test`).
 - `datos-iniciales/obras.json`: las obras con las que arranca (Casa con sus tareas de `casa.json`, y las sedes, vacías).
 

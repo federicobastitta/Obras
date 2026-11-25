@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS obras (
   id INTEGER PRIMARY KEY,
   nombre TEXT NOT NULL,
   tipo TEXT NOT NULL DEFAULT '',
+  demo INTEGER NOT NULL DEFAULT 0,
   creada TEXT NOT NULL
 );
 
@@ -118,6 +119,7 @@ export function abrirBase(ruta) {
     }
   };
   asegurar('obras', 'tipo', "TEXT NOT NULL DEFAULT ''");
+  asegurar('obras', 'demo', 'INTEGER NOT NULL DEFAULT 0');
   asegurar('personas', 'rubro', "TEXT NOT NULL DEFAULT ''");
   asegurar('personas', 'limitado', 'INTEGER NOT NULL DEFAULT 0');
   asegurar('tareas', 'asignada_a', 'INTEGER REFERENCES personas(id)');
