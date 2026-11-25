@@ -135,6 +135,8 @@ export function abrirBase(ruta) {
   asegurar('personas', 'pide', 'INTEGER NOT NULL DEFAULT 0');
   asegurar('llaves', 'rol', "TEXT NOT NULL DEFAULT 'constructor'");
   asegurar('personas', 'externo', "TEXT NOT NULL DEFAULT ''");
+  // Tarea que Darío o Alejandro hicieron sin que nadie la pidiera (dueño 25/11/2026): se carga ya realizada y con foto.
+  asegurar('tareas', 'fuera_de_pedido', 'INTEGER NOT NULL DEFAULT 0');
   return db;
 }
 

@@ -521,6 +521,35 @@ async function vistaLista() {
     );
   }
 
+  // Darío y Alejandro: algo que hicieron sin que estuviera pedido (dueño 25/11/2026). Queda realizada y la foto es obligatoria.
+  if (esConstructor()) {
+    const texto = h('input', { id: 'fp-texto', type: 'text', maxlength: 400, required: true, placeholder: 'Qué hiciste' });
+    const lugar = h('input', { id: 'fp-lugar', type: 'text', maxlength: 60, list: 'lugares-fp', placeholder: 'Consultorio 3, recepción, baño…' });
+    const foto = h('input', { id: 'fp-foto', type: 'file', accept: 'image/*', capture: 'environment', required: true });
+    alta = h('details', { class: 'caja' },
+      h('summary', { class: 'titulo' }, 'Crear tarea fuera de los pedidos'),
+      h('form', {
+        class: 'rejilla',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const archivo = foto.files[0];
+          if (!archivo) { foto.focus(); return; }
+          const ok = await hacer(e.submitter, async () => api('POST',
+            `/tareas/fuera-de-pedido?texto=${encodeURIComponent(texto.value)}&lugar=${encodeURIComponent(lugar.value)}`,
+            await achicar(archivo)), 'Tarea cargada como realizada.');
+          if (ok) { filtro = 'todas'; vistaLista(); }
+        },
+      },
+        h('p', { class: 'sub ancho' }, 'Para algo que hiciste sin que estuviera pedido. Queda como realizada. La foto es obligatoria.'),
+        h('label', { class: 'ancho', for: 'fp-texto' }, 'Tarea', texto),
+        h('label', { class: 'ancho', for: 'fp-lugar' }, 'Lugar de la casa', lugar),
+        h('label', { class: 'ancho', for: 'fp-foto' }, 'Foto de la tarea (obligatoria)', foto),
+        h('datalist', { id: 'lugares-fp' }, lugares.map((l) => h('option', { value: l }))),
+        h('button', { class: 'principal ancho', type: 'submit' }, 'Crear tarea'),
+      ),
+    );
+  }
+
   const filtros = h('div', { class: 'filtros', role: 'group', 'aria-label': 'Qué tareas mostrar' },
     opciones.map(([clave, nombre, lista]) =>
       h('button', { type: 'button', 'aria-pressed': String(filtro === clave), onclick: () => { filtro = clave; vistaLista(); } }, `${nombre} ${lista.length}`)),
@@ -552,7 +581,8 @@ async function vistaLista() {
             chipEstado(t),
             t.prioridad === 'alta' && !terminada(t) ? h('span', { class: 'chip mal' }, 'Prioridad alta') : null,
             t.asignada_nombre && !yo.limitado ? h('span', { class: 'chip' }, `${t.asignada_rubro || 'Proveedor'} · ${t.asignada_nombre}`) : null,
-            t.pedida_por && !yo.pide ? h('span', null, 'Pidió ' + quienPidio(t)) : null,
+            t.fuera_de_pedido ? h('span', { class: 'chip' }, 'Fuera de los pedidos') : null,
+            t.pedida_por && !yo.pide && !t.fuera_de_pedido ? h('span', null, 'Pidió ' + quienPidio(t)) : null,
             t.grupo_id ? h('span', { class: 'chip' }, 'Grupo: ' + (grupos.find((g) => g.id === t.grupo_id)?.nombre || '')) : null,
             t.monto != null ? h('span', null, plata(t.monto, t.moneda)) : null,
             t.plazo ? h('span', { class: vencida(t) ? 'vencida' : null }, (vencida(t) ? 'Venció el ' : 'Entrega ') + dia(t.plazo)) : null,
@@ -751,7 +781,7 @@ async function vistaTarea(id) {
       h('div', { class: 'datos' },
         chipEstado(t),
         t.prioridad !== 'media' ? h('span', { class: 'chip' + (t.prioridad === 'alta' ? ' mal' : '') }, 'Prioridad ' + t.prioridad) : null,
-        h('span', null, (t.pedida_por ? `Pidió ${quienPidio(t)} el ` : 'Cargada el ') + dia(t.creada)))),
+        h('span', null, (t.fuera_de_pedido ? `Hecha fuera de los pedidos por ${t.pedida_por} el ` : t.pedida_por ? `Pidió ${quienPidio(t)} el ` : 'Cargada el ') + dia(t.creada)))),
     CON_PRESUPUESTOS ? presupuesto : null, avance, cajaFotos, cajaArchivos, cajaHistorial, edicion,
   );
 }
