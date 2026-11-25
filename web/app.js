@@ -342,10 +342,16 @@ async function bajarArchivo(a) {
   enlace.remove();
   setTimeout(() => URL.revokeObjectURL(u), 60000);
 }
-/** Link que abre WhatsApp con el mensaje escrito. Con número va directo a ese chat; sin número, deja elegir el contacto. */
-function linkDeWhatsApp(mensaje, numero = '') {
-  const n = numero.replace(/\D/g, '');
-  return `https://wa.me/${n}?text=${encodeURIComponent(mensaje)}`;
+/** Link que abre WhatsApp en su lista de contactos, con el mensaje ya escrito, para elegir a quién mandárselo. */
+function linkDeWhatsApp(mensaje) {
+  const texto = encodeURIComponent(mensaje);
+  // En el celular se abre la app directo en "Enviar a…"; en la computadora, WhatsApp Web.
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? `whatsapp://send?text=${texto}` : `https://wa.me/?text=${texto}`;
+}
+function botonWhatsApp(mensaje, clase, texto) {
+  const href = linkDeWhatsApp(mensaje);
+  // El link de la app se abre en el lugar; el de WhatsApp Web, en otra pestaña.
+  return h('a', { class: clase, href, target: href.startsWith('https:') ? '_blank' : null, rel: 'noopener' }, texto);
 }
 
 /** Ventana emergente con título y botón de cerrar. Devuelve { cuerpo, cerrar }. */
@@ -752,7 +758,7 @@ async function vistaPersonas() {
           h('span', { class: 'fila entre' },
             h('span', null, h('strong', null, p.nombre), ` · ${rotulo(p)}`, p.id === yo.id ? ' (vos)' : '', p.activa ? '' : ' · dada de baja'),
             h('span', { class: 'fila' },
-              p.activa && p.id !== yo.id ? h('a', { class: 'boton chico', href: linkDeWhatsApp(`Hola ${p.nombre}, te paso tu link para entrar a ${obra.nombre} en Construir: ${link(p)}`), target: '_blank', rel: 'noopener' }, 'WhatsApp') : null,
+              p.activa && p.id !== yo.id ? botonWhatsApp(`Hola ${p.nombre}, te paso tu link para entrar a ${obra.nombre} en Construir: ${link(p)}`, 'boton chico', 'WhatsApp') : null,
               p.activa ? h('button', { class: 'chico', type: 'button', onclick: () => copiar(p) }, 'Copiar link') : null,
               p.id !== yo.id ? h('button', {
                 class: 'chico' + (p.activa ? ' peligro' : ''), type: 'button',
@@ -1085,7 +1091,6 @@ async function vistaInicio() {
     const nombre = h('input', { id: 'pr-nombre', type: 'text', maxlength: 60, required: true, placeholder: 'Nombre del proveedor' });
     const rubro = h('input', { id: 'pr-rubro', type: 'text', maxlength: 40, required: true, list: 'rubros', placeholder: 'Plomería, electricidad…' });
     const lugar = h('input', { id: 'pr-lugar', type: 'text', maxlength: 60, placeholder: 'Baño, cocina, toda la sede…' });
-    const whatsapp = h('input', { id: 'pr-whatsapp', type: 'tel', inputmode: 'tel', maxlength: 25, placeholder: '54 9 11 1234 5678' });
     const adjuntos = h('input', { id: 'pr-adjuntos', type: 'file', multiple: true, accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.dwg,.dxf,.zip,image/*' });
     const trabajos = h('textarea', { id: 'pr-trabajos', required: true, rows: 4, placeholder: 'Un trabajo por renglón.\nCambiar flexibles del baño\nDestapar rejilla del patio' });
     v.cuerpo.append(h('form', {
@@ -1113,10 +1118,10 @@ async function vistaInicio() {
           elegidos.length ? h('p', { class: subidos ? 'sub' : 'nota' }, subidos
             ? `Las fotos y archivos (${elegidos.length}) quedaron en el primer trabajo.`
             : 'El proveedor se creó, pero no se pudieron subir todas las fotos y archivos. Subilos desde la tarea.') : null,
-          h('p', { class: 'sub' }, 'Mandale este link por WhatsApp. Con solo abrirlo entra a la app, sin usuario ni contraseña, y ve únicamente su trabajo: lo presupuesta, le pone fecha de entrega, sube fotos y archivos y lo marca cuando lo termina.'),
+          h('p', { class: 'sub' }, 'Tocá «Compartir por WhatsApp»: se abre tu lista de contactos para elegir a quién mandárselo. Con solo abrir el link entra a la app, sin usuario ni contraseña, y ve únicamente su trabajo: lo presupuesta, le pone fecha de entrega, sube fotos y archivos y lo marca cuando lo termina.'),
           campo,
           h('div', { class: 'fila' },
-            h('a', { class: 'boton principal', href: linkDeWhatsApp(mensaje, whatsapp.value), target: '_blank', rel: 'noopener' }, 'Enviar por WhatsApp'),
+            botonWhatsApp(mensaje, 'boton principal', 'Compartir por WhatsApp'),
             h('button', {
               type: 'button',
               onclick: async () => {
@@ -1133,7 +1138,6 @@ async function vistaInicio() {
       h('label', { class: 'ancho', for: 'pr-lugar' }, 'Lugar (opcional)', lugar),
       h('label', { class: 'ancho', for: 'pr-trabajos' }, 'Trabajo que le encargás', trabajos),
       h('label', { class: 'ancho', for: 'pr-adjuntos' }, 'Fotos y archivos del trabajo (opcional)', adjuntos),
-      h('label', { class: 'ancho', for: 'pr-whatsapp' }, 'WhatsApp del proveedor, con código de país (opcional)', whatsapp),
       h('button', { class: 'principal ancho', type: 'submit' }, 'Crear proveedor y su link')));
     nombre.focus();
   }
