@@ -1204,8 +1204,10 @@ async function vistaInicio() {
 
   function nuevoProveedor() {
     const v = ventana('Nuevo proveedor', refrescar);
-    const cual = h('select', { id: 'pr-obra' }, dirigidas.map((f) => h('option', { value: f.token }, f.obra.nombre)));
-    if (dirigidas.some((f) => f.token === token)) cual.value = token;
+    // La obra se elige siempre a mano: no viene ninguna marcada, salvo que haya una sola.
+    const cual = h('select', { id: 'pr-obra', required: true },
+      dirigidas.length > 1 ? h('option', { value: '' }, 'Elegí la obra…') : null,
+      dirigidas.map((f) => h('option', { value: f.token }, f.obra.nombre + (f.obra.tipo ? ` · ${f.obra.tipo}` : ''))));
     const nombre = h('input', { id: 'pr-nombre', type: 'text', maxlength: 60, required: true, placeholder: 'Nombre del proveedor' });
     const rubro = h('input', { id: 'pr-rubro', type: 'text', maxlength: 40, required: true, list: 'rubros', placeholder: 'Plomería, electricidad…' });
     const lugar = h('input', { id: 'pr-lugar', type: 'text', maxlength: 60, placeholder: 'Baño, cocina, toda la sede…' });
@@ -1216,6 +1218,7 @@ async function vistaInicio() {
       onsubmit: async (e) => {
         e.preventDefault();
         const destino = dirigidas.find((f) => f.token === cual.value);
+        if (!destino) { avisar('Elegí a qué obra se asigna el proveedor.', true); cual.focus(); return; }
         let alta;
         const ok = await hacer(e.submitter, async () => {
           alta = await pedirCon(destino.token, 'POST', '/proveedores', {
@@ -1249,7 +1252,7 @@ async function vistaInicio() {
             h('button', { type: 'button', onclick: () => v.cerrar() }, 'Listo')));
       },
     },
-      h('label', { class: 'ancho', for: 'pr-obra' }, 'Obra', cual),
+      h('label', { class: 'ancho', for: 'pr-obra' }, 'Obra a la que se asigna', cual),
       h('label', { for: 'pr-nombre' }, 'Nombre', nombre),
       h('label', { for: 'pr-rubro' }, 'Rubro', rubro),
       h('datalist', { id: 'rubros' }, RUBROS.map((r) => h('option', { value: r }))),
