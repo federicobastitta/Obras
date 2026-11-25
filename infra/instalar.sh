@@ -30,11 +30,12 @@ if ! node_sirve; then
   curl -fsSL "https://nodejs.org/dist/latest-v22.x/$ARCHIVO" -o "$TMP/$ARCHIVO"
   (cd "$TMP" && grep " $ARCHIVO\$" sumas.txt | sha256sum -c - > /dev/null) || { echo "La descarga de Node no coincide con su suma de control."; exit 1; }
   mkdir -p /opt/obras-node.nuevo
-  tar -xJf "$TMP/$ARCHIVO" -C /opt/obras-node.nuevo --strip-components=1
+  tar -xJf "$TMP/$ARCHIVO" -C /opt/obras-node.nuevo --strip-components=1 --no-same-owner
   if [ -d /opt/obras-node ]; then mv /opt/obras-node "/opt/obras-node.viejo.$(date +%s)"; fi
   mv /opt/obras-node.nuevo /opt/obras-node
   node_sirve || { echo "El Node instalado no sirve."; exit 1; }
 fi
+chown -R root:root /opt/obras-node
 echo "   $("$NODE" --version)"
 
 echo "== Pruebas"
@@ -96,8 +97,22 @@ systemctl reload nginx
 
 echo "== Certificado https"
 if [ ! -d "/etc/letsencrypt/live/$DOMINIO" ]; then
-  command -v certbot > /dev/null 2>&1 || { apt-get update -qq; apt-get install -y -qq certbot python3-certbot-nginx > /dev/null; }
-  if ! certbot --nginx -d "$DOMINIO" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+  # certbot por snap si se puede (no depende del estado de apt en la máquina); si no, por apt.
+  CERTBOT=""
+  if [ -x /snap/bin/certbot ]; then CERTBOT=/snap/bin/certbot; elif command -v certbot > /dev/null 2>&1; then CERTBOT="$(command -v certbot)"; fi
+  if [ -z "$CERTBOT" ] && command -v snap > /dev/null 2>&1; then
+    snap install --classic certbot > /tmp/obras-certbot.log 2>&1 && CERTBOT=/snap/bin/certbot || tail -n 5 /tmp/obras-certbot.log
+  fi
+  if [ -z "$CERTBOT" ]; then
+    { apt-get update -qq && apt-get install -y -qq certbot python3-certbot-nginx; } > /tmp/obras-certbot.log 2>&1 \
+      && CERTBOT="$(command -v certbot)" || tail -n 5 /tmp/obras-certbot.log
+  fi
+  if [ -z "$CERTBOT" ]; then
+    echo "== AVISO: no se pudo instalar certbot. La app quedó andando por http, sin https."
+    echo "== Listo SIN https: $(git rev-parse --short HEAD)"
+    exit 0
+  fi
+  if ! "$CERTBOT" --nginx -d "$DOMINIO" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
     echo "== AVISO: no se pudo sacar el certificado. Revisar que $DOMINIO apunte a este servidor y que los puertos 80 y 443 estén abiertos; después volver a desplegar."
     echo "== Listo SIN https: $(git rev-parse --short HEAD)"
     exit 0
