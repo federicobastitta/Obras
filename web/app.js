@@ -550,6 +550,7 @@ async function vistaLista() {
             chipEstado(t),
             t.prioridad === 'alta' && !terminada(t) ? h('span', { class: 'chip mal' }, 'Prioridad alta') : null,
             t.asignada_nombre && !yo.limitado ? h('span', { class: 'chip' }, `${t.asignada_rubro || 'Proveedor'} · ${t.asignada_nombre}`) : null,
+            t.pedida_por && !yo.pide ? h('span', null, 'Pidió ' + quienPidio(t)) : null,
             t.grupo_id ? h('span', { class: 'chip' }, 'Grupo: ' + (grupos.find((g) => g.id === t.grupo_id)?.nombre || '')) : null,
             t.monto != null ? h('span', null, plata(t.monto, t.moneda)) : null,
             t.plazo ? h('span', { class: vencida(t) ? 'vencida' : null }, (vencida(t) ? 'Venció el ' : 'Entrega ') + dia(t.plazo)) : null,
@@ -748,10 +749,13 @@ async function vistaTarea(id) {
       h('div', { class: 'datos' },
         chipEstado(t),
         t.prioridad !== 'media' ? h('span', { class: 'chip' + (t.prioridad === 'alta' ? ' mal' : '') }, 'Prioridad ' + t.prioridad) : null,
-        h('span', null, 'Cargada el ' + dia(t.creada)))),
+        h('span', null, (t.pedida_por ? `Pidió ${quienPidio(t)} el ` : 'Cargada el ') + dia(t.creada)))),
     CON_PRESUPUESTOS ? presupuesto : null, avance, cajaFotos, cajaArchivos, cajaHistorial, edicion,
   );
 }
+
+/** Quién pidió el arreglo, y desde dónde entró si vino de Conectar o de FC. */
+const quienPidio = (t) => t.pedida_por + (t.pedida_desde ? ` (desde ${t.pedida_desde})` : '');
 
 function detalleLegible(e) {
   // Los montos se guardan como "ARS 120000": se muestran con formato y la fecha en día/mes/año.

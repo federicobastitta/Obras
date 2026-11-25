@@ -430,9 +430,12 @@ test('quien pide entra desde Conectar o FC, ve solo sus pedidos; el equipo los h
     const dario = equipo.personas[0].tokens[0];
     const suyas = (await p2(dario, 'GET', '/api/tareas')).datos.tareas;
     assert.deepEqual(suyas.map((t) => t.texto), ['Pierde la canilla']);
+    // Queda registrado quién lo pidió y desde dónde.
+    assert.deepEqual([suyas[0].pedida_por, suyas[0].pedida_desde], ['Ana de Recepción', 'Conectar']);
     assert.equal((await p2(dario, 'POST', `/api/tareas/${pedido.datos.id}/accion`, { accion: 'realizada' })).codigo, 200);
     const visto = (await p2(anaLomas, 'GET', '/api/tareas/' + pedido.datos.id)).datos.tarea;
     assert.equal(visto.estado, 'realizada');
+    assert.deepEqual([visto.pedida_por, visto.pedida_desde], ['Ana de Recepción', 'Conectar']);
     assert.equal((await p2(anaLomas, 'POST', `/api/tareas/${pedido.datos.id}/accion`, { accion: 'verificar' })).codigo, 200);
 
     // Entrar otra vez desde FC con otro usuario crea otro acceso; volver a entrar usa el mismo.
