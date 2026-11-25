@@ -1017,6 +1017,8 @@ function selectorDeTipo(id, actual = '') {
 
 async function vistaInicio() {
   const lista = accesos();
+  const enDias = (n) => { const f = new Date(); f.setDate(f.getDate() + n); return `${f.getFullYear()}-${dosDigitos(f.getMonth() + 1)}-${dosDigitos(f.getDate())}`; };
+  const limite = enDias(7);
   const fichas = await Promise.all(lista.map(async (x) => {
     try {
       const [quien, datos] = await Promise.all([pedirCon(x.token, 'GET', '/yo'), pedirCon(x.token, 'GET', '/tareas')]);
@@ -1032,9 +1034,12 @@ async function vistaInicio() {
         tocan: ts.filter((t) => leToca(t, rol)).length,
         vencidas: ts.filter(vencida).length,
         saldos,
+        // Lo que vence en los próximos 7 días o ya venció, y todavía no se hizo.
+        porVencer: ts.filter((t) => t.plazo && t.plazo <= limite && !['realizada', 'verificada'].includes(t.estado))
+          .map((t) => ({ token: x.token, obra: quien.obra.nombre, id: t.id, texto: t.texto, plazo: t.plazo, quien: t.asignada_nombre || '' })),
       };
     } catch {
-      return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {} };
+      return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {}, porVencer: [] };
     }
   }));
   guardarAccesos(lista.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '' } : x; }));
@@ -1185,6 +1190,29 @@ async function vistaInicio() {
       dirige ? h('button', { class: 'engranaje', type: 'button', onclick: () => editarObra(f), 'aria-label': `Cambiar nombre o tipo de ${f.obra.nombre}` }, 'Editar') : null);
   });
 
+  // ----- próximos vencimientos -----
+  const vencimientos = fichas.flatMap((f) => f.porVencer).sort((a, b) => a.plazo.localeCompare(b.plazo));
+  const cuando = (plazo) => {
+    const dias = Math.round((Date.parse(plazo + 'T00:00:00') - Date.parse(hoy() + 'T00:00:00')) / 86400000);
+    if (dias < 0) return [`Venció el ${dia(plazo)} · hace ${-dias} ${dias === -1 ? 'día' : 'días'}`, 'mal'];
+    if (dias === 0) return ['Vence hoy', 'pend'];
+    if (dias === 1) return [`Vence mañana · ${dia(plazo)}`, 'pend'];
+    return [`Vence el ${dia(plazo)} · en ${dias} días`, 'info'];
+  };
+  const TOPE = 8;
+  const cajaVencimientos = [
+    h('h2', { class: 'grupo' }, 'Próximos vencimientos', h('small', null, 'Vencidas y los próximos 7 días')),
+    vencimientos.length
+      ? h('ul', { class: 'lista' }, vencimientos.slice(0, TOPE).map((v) => {
+        const [texto, clase] = cuando(v.plazo);
+        return h('li', null, h('button', { class: 'renglon', type: 'button', onclick: () => cambiarDeObra(v.token, 'tarea/' + v.id) },
+          h('span', { class: 'texto' }, v.texto),
+          h('span', { class: 'datos' }, h('span', { class: 'chip ' + clase }, texto), h('span', null, v.obra), v.quien ? h('span', null, v.quien) : null)));
+      }))
+      : h('p', { class: 'vacio' }, 'No hay nada vencido ni por vencer en los próximos 7 días.'),
+    vencimientos.length > TOPE ? h('p', { class: 'sub' }, `Y ${vencimientos.length - TOPE} más. Entrá a cada obra para verlas todas.`) : null,
+  ];
+
   marco('',
     h('div', { class: 'cuadros' },
       dato(suma('tocan'), suma('tocan') === 1 ? 'Espera tu respuesta' : 'Esperan tu respuesta', 'aviso-info'),
@@ -1193,6 +1221,7 @@ async function vistaInicio() {
       dirigidas.length ? accion('Nueva obra', 'Vivienda, clínica, local…', nuevaObra) : null,
       dirigidas.length ? accion('Nuevo proveedor', 'Plomero, electricista… con su link', nuevoProveedor) : null,
       accion('Sumar con un link', 'Una obra que te compartieron', sumarConLink)),
+    ...cajaVencimientos,
     h('h2', { class: 'grupo' }, fichas.length === 1 ? 'Tu obra' : 'Tus obras', h('small', null, 'Tocá una para abrirla')),
     h('div', { class: 'cuadros obras' }, cuadrosDeObra),
   );
