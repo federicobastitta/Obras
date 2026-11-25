@@ -146,3 +146,40 @@ export function crearObra(db, { nombre, propietario, tipo = '', tareas = [] }) {
   }
   return { obraId: Number(obraId), personaId: Number(personaId), token };
 }
+
+/**
+ * Carga una lista de tareas en una obra, una sola vez por identificador. Usa la obra con ese nombre; si no existe y hay
+ * una única obra todavía sin tareas, usa esa (y le pone el nombre y el tipo); si no, crea una obra nueva.
+ * Devuelve { hecho, obra, tareas, token? } (token solo si hubo que crear una obra nueva).
+ */
+export function cargarTareas(db, { id, obra, tipo = '', tareas, propietario = 'Propietario' }) {
+  db.exec('CREATE TABLE IF NOT EXISTS cargas (id TEXT PRIMARY KEY, fecha TEXT NOT NULL)');
+  if (db.prepare('SELECT 1 FROM cargas WHERE id = ?').get(id)) return { hecho: false };
+  db.exec('BEGIN');
+  try {
+    let fila = db.prepare('SELECT id FROM obras WHERE nombre = ? AND demo = 0 ORDER BY id LIMIT 1').get(obra);
+    let token = null;
+    if (!fila) {
+      const todas = db.prepare('SELECT o.id, (SELECT COUNT(*) FROM tareas t WHERE t.obra_id = o.id) AS n FROM obras o WHERE o.demo = 0').all();
+      if (todas.length === 1 && todas[0].n === 0) {
+        fila = { id: todas[0].id };
+        db.prepare('UPDATE obras SET nombre = ?, tipo = ? WHERE id = ?').run(obra, tipo, fila.id);
+      } else {
+        const nueva = crearObra(db, { nombre: obra, tipo, propietario });
+        fila = { id: nueva.obraId };
+        token = nueva.token;
+      }
+    }
+    const quien = db.prepare("SELECT id FROM personas WHERE obra_id = ? AND rol = 'propietario' AND activa = 1 ORDER BY id LIMIT 1").get(fila.id);
+    const t = ahora();
+    const ins = db.prepare('INSERT INTO tareas (obra_id, lugar, texto, creada_por, creada) VALUES (?, ?, ?, ?, ?)');
+    const ev = db.prepare("INSERT INTO eventos (tarea_id, persona_id, tipo, detalle, fecha) VALUES (?, ?, 'creada', '', ?)");
+    for (const x of tareas) ev.run(ins.run(fila.id, x.lugar || '', x.texto, quien ? quien.id : null, t).lastInsertRowid, quien ? quien.id : null, t);
+    db.prepare('INSERT INTO cargas (id, fecha) VALUES (?, ?)').run(id, t);
+    db.exec('COMMIT');
+    return { hecho: true, obra, tareas: tareas.length, token };
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}

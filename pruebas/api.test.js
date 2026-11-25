@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crearApp } from '../servidor/app.js';
-import { crearObra } from '../servidor/db.js';
+import { crearObra, abrirBase, cargarTareas } from '../servidor/db.js';
 import { asegurarDemo } from '../servidor/demo.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -340,4 +340,24 @@ test('demostración con arquitecto propio: le pone el nombre y da un link que ab
   const antes = db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n;
   assert.deepEqual(asegurarDemo(db, { ...op, arquitecto: 'Nazareno' }), links);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n, antes);
+});
+
+test('carga de tareas por lista: una sola vez, en la obra vacía o en la que tiene ese nombre', async () => {
+  const base2 = abrirBase(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'carga-')), 'obras.db'));
+  const inicial = crearObra(base2, { nombre: 'Mi primera obra', propietario: 'Dueña' });
+  const lista = [{ lugar: 'Cocina', texto: 'Instalar extractor' }, { lugar: 'Pileta', texto: 'Instalar filtros' }];
+  const r = cargarTareas(base2, { id: 'c1', obra: 'Casa', tipo: 'Vivienda', tareas: lista });
+  assert.deepEqual([r.hecho, r.tareas, r.token], [true, 2, null], 'usa la única obra vacía, sin crear otra');
+  assert.deepEqual({ ...base2.prepare('SELECT nombre, tipo FROM obras WHERE id = ?').get(inicial.obraId) }, { nombre: 'Casa', tipo: 'Vivienda' });
+  assert.equal(base2.prepare('SELECT COUNT(*) AS n FROM obras').get().n, 1);
+  assert.deepEqual(base2.prepare('SELECT lugar, texto, estado, creada_por FROM tareas ORDER BY id').all().map((t) => [t.lugar, t.texto, t.estado, t.creada_por]),
+    [['Cocina', 'Instalar extractor', 'pendiente', inicial.personaId], ['Pileta', 'Instalar filtros', 'pendiente', inicial.personaId]]);
+  assert.equal(base2.prepare("SELECT COUNT(*) AS n FROM eventos WHERE tipo = 'creada'").get().n, 2);
+  assert.equal(cargarTareas(base2, { id: 'c1', obra: 'Casa', tareas: lista }).hecho, false, 'repetir no duplica');
+  assert.equal(base2.prepare('SELECT COUNT(*) AS n FROM tareas').get().n, 2);
+  // Otra carga a la misma obra por nombre suma; a un nombre que no existe (y sin obra vacía) crea la obra y da su link.
+  assert.equal(cargarTareas(base2, { id: 'c2', obra: 'Casa', tareas: [{ texto: 'Otra' }] }).token, null);
+  const nueva = cargarTareas(base2, { id: 'c3', obra: 'Quincho', tareas: [{ texto: 'Parrilla' }], propietario: 'Dueña' });
+  assert.ok(nueva.hecho && /^[0-9a-f]{48}$/.test(nueva.token));
+  assert.equal(base2.prepare('SELECT COUNT(*) AS n FROM obras').get().n, 2);
 });
