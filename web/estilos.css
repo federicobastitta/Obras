@@ -195,3 +195,9 @@ progress::-moz-progress-bar { background: var(--ok); }
 .boton.principal { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 650; }
 .boton.chico { font-size: 0.85rem; padding: 5px 10px; }
 input[type="file"] { padding: 8px; font-size: 0.9rem; }
+
+.lista li.aprobar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 13px 14px; }
+.lista li.aprobar .cuerpo { flex: 1 1 200px; }
+
+.fotos.grandes { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+.fotos.grandes .foto span { right: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(100% - 8px); width: fit-content; }

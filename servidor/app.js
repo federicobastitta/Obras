@@ -532,6 +532,14 @@ export function crearApp({ dirDatos, dirWeb }) {
       }
     }
 
+    if (a === 'fotos' && !id && m === 'GET') {
+      // Últimas fotos que subieron el constructor y los proveedores (para el Inicio). Un proveedor solo ve las de sus trabajos.
+      const filas = db.prepare(`SELECT f.id, f.tarea_id, f.momento, f.fecha, t.texto AS tarea, p.nombre AS persona
+          FROM fotos f JOIN tareas t ON t.id = f.tarea_id JOIN personas p ON p.id = f.persona_id
+          WHERE t.obra_id = ? AND p.rol = 'constructor' AND (? = 0 OR t.asignada_a = ?) ORDER BY f.id DESC LIMIT 12`).all(p.obra_id, p.limitado ? 1 : 0, p.id);
+      return responder(200, { fotos: filas });
+    }
+
     if (a === 'fotos' && id) {
       const f = db
         .prepare('SELECT f.*, t.obra_id, t.asignada_a FROM fotos f JOIN tareas t ON t.id = f.tarea_id WHERE f.id = ?')

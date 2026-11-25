@@ -1021,7 +1021,7 @@ async function vistaInicio() {
   const limite = enDias(7);
   const fichas = await Promise.all(lista.map(async (x) => {
     try {
-      const [quien, datos] = await Promise.all([pedirCon(x.token, 'GET', '/yo'), pedirCon(x.token, 'GET', '/tareas')]);
+      const [quien, datos, ultimas] = await Promise.all([pedirCon(x.token, 'GET', '/yo'), pedirCon(x.token, 'GET', '/tareas'), pedirCon(x.token, 'GET', '/fotos').catch(() => ({ fotos: [] }))]);
       const ts = datos.tareas;
       const rol = quien.persona.rol;
       const saldos = {};
@@ -1034,12 +1034,24 @@ async function vistaInicio() {
         tocan: ts.filter((t) => leToca(t, rol)).length,
         vencidas: ts.filter(vencida).length,
         saldos,
+        fotos: (ultimas.fotos || []).map((f) => ({ ...f, token: x.token, obra: quien.obra.nombre })),
+        // Presupuestos que esperan la aprobación de quien dirige la obra: grupos y tareas sueltas.
+        aAprobar: rol === 'constructor' ? [] : [
+          ...(datos.grupos || []).filter((g) => g.estado === 'presupuestado').map((g) => ({
+            token: x.token, obra: quien.obra.nombre, ruta: '/grupos/' + g.id, titulo: g.nombre,
+            detalle: `Grupo de ${g.cantidad} ${g.cantidad === 1 ? 'tarea' : 'tareas'}`, monto: g.monto, moneda: g.moneda, plazo: g.plazo,
+          })),
+          ...ts.filter((t) => !t.grupo_id && t.estado === 'presupuestada').map((t) => ({
+            token: x.token, obra: quien.obra.nombre, ruta: '/tareas/' + t.id, titulo: t.texto,
+            detalle: t.asignada_nombre ? `${t.asignada_rubro || 'Proveedor'} · ${t.asignada_nombre}` : t.lugar || '', monto: t.monto, moneda: t.moneda, plazo: t.plazo,
+          })),
+        ],
         // Lo que vence en los próximos 7 días o ya venció, y todavía no se hizo.
         porVencer: ts.filter((t) => t.plazo && t.plazo <= limite && !['realizada', 'verificada'].includes(t.estado))
           .map((t) => ({ token: x.token, obra: quien.obra.nombre, id: t.id, texto: t.texto, plazo: t.plazo, quien: t.asignada_nombre || '' })),
       };
     } catch {
-      return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {}, porVencer: [] };
+      return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {}, porVencer: [], aAprobar: [], fotos: [] };
     }
   }));
   guardarAccesos(lista.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '' } : x; }));
@@ -1190,6 +1202,32 @@ async function vistaInicio() {
       dirige ? h('button', { class: 'engranaje', type: 'button', onclick: () => editarObra(f), 'aria-label': `Cambiar nombre o tipo de ${f.obra.nombre}` }, 'Editar') : null);
   });
 
+  // ----- presupuestos a aprobar -----
+  const pendientes = fichas.flatMap((f) => f.aAprobar).sort((a, b) => (a.plazo || '').localeCompare(b.plazo || ''));
+  const totales = {};
+  for (const x of pendientes) totales[x.moneda] = (totales[x.moneda] || 0) + x.monto;
+  const cajaAprobar = !dirigidas.length ? [] : [
+    h('h2', { class: 'grupo' }, 'Presupuestos a aprobar',
+      h('small', null, pendientes.length ? Object.entries(totales).map(([moneda, n]) => plata(n, moneda)).join(' + ') : '')),
+    pendientes.length
+      ? h('ul', { class: 'lista' }, pendientes.map((x) =>
+        h('li', { class: 'aprobar' },
+          h('div', { class: 'cuerpo' },
+            h('span', { class: 'texto' }, x.titulo),
+            h('span', { class: 'datos' },
+              h('strong', null, plata(x.monto, x.moneda)),
+              h('span', null, 'Entrega ' + dia(x.plazo)),
+              h('span', null, x.obra),
+              x.detalle ? h('span', null, x.detalle) : null)),
+          h('div', { class: 'fila' },
+            h('button', {
+              class: 'bien chico', type: 'button',
+              onclick: (e) => hacer(e.currentTarget, () => pedirCon(x.token, 'POST', x.ruta + '/accion', { accion: 'aprobar' }), 'Presupuesto aprobado.').then((ok) => ok && refrescar()),
+            }, 'Aprobar'),
+            h('button', { class: 'chico', type: 'button', onclick: () => cambiarDeObra(x.token, 'presupuestos') }, 'Ver o rechazar')))))
+      : h('p', { class: 'vacio' }, 'No hay presupuestos esperando tu aprobación.'),
+  ];
+
   // ----- próximos vencimientos -----
   const vencimientos = fichas.flatMap((f) => f.porVencer).sort((a, b) => a.plazo.localeCompare(b.plazo));
   const cuando = (plazo) => {
@@ -1213,6 +1251,22 @@ async function vistaInicio() {
     vencimientos.length > TOPE ? h('p', { class: 'sub' }, `Y ${vencimientos.length - TOPE} más. Entrá a cada obra para verlas todas.`) : null,
   ];
 
+  // ----- fotos de obra -----
+  const recientes = fichas.flatMap((f) => f.fotos).sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 12);
+  const MOMENTO = { antes: 'Antes', despues: 'Después' };
+  const porCargar = [];
+  const cajaFotos = [
+    h('h2', { class: 'grupo' }, 'Fotos de obra', h('small', null, recientes.length ? 'Subidas por los constructores' : '')),
+    recientes.length
+      ? h('div', { class: 'fotos grandes' }, recientes.map((f) => {
+        const img = h('img', { alt: `Foto de «${f.tarea}» en ${f.obra}`, loading: 'lazy' });
+        porCargar.push([f, img]);
+        return h('button', { class: 'foto', type: 'button', onclick: () => cambiarDeObra(f.token, 'tarea/' + f.tarea_id), 'aria-label': `Abrir «${f.tarea}» en ${f.obra}` },
+          img, h('span', null, [f.obra, f.persona].filter(Boolean).join(' · ')));
+      }))
+      : h('p', { class: 'vacio' }, 'Todavía no hay fotos subidas por los constructores o proveedores.'),
+  ];
+
   marco('',
     h('div', { class: 'cuadros' },
       dato(suma('tocan'), suma('tocan') === 1 ? 'Espera tu respuesta' : 'Esperan tu respuesta', 'aviso-info'),
@@ -1221,10 +1275,19 @@ async function vistaInicio() {
       dirigidas.length ? accion('Nueva obra', 'Vivienda, clínica, local…', nuevaObra) : null,
       dirigidas.length ? accion('Nuevo proveedor', 'Plomero, electricista… con su link', nuevoProveedor) : null,
       accion('Sumar con un link', 'Una obra que te compartieron', sumarConLink)),
+    ...cajaAprobar,
     ...cajaVencimientos,
     h('h2', { class: 'grupo' }, fichas.length === 1 ? 'Tu obra' : 'Tus obras', h('small', null, 'Tocá una para abrirla')),
     h('div', { class: 'cuadros obras' }, cuadrosDeObra),
+    ...cajaFotos,
   );
+  // Las fotos se piden después de dibujar, cada una con el link de su obra.
+  for (const [f, img] of porCargar) {
+    fetch('/api/fotos/' + f.id, { headers: { Authorization: 'Bearer ' + f.token } })
+      .then((r) => (r.ok ? r.blob() : Promise.reject()))
+      .then((b) => { const u = URL.createObjectURL(b); urlsDeFotos.push(u); img.src = u; })
+      .catch(() => { img.alt = 'No se pudo cargar la foto'; });
+  }
 }
 
 // ---------- rutas ----------
