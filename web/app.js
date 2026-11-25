@@ -1,4 +1,4 @@
-// Obras: tareas, presupuestos, plazos, fotos y pagos de una obra.
+// Construir: tareas, presupuestos, plazos, fotos y pagos de una obra.
 const app = document.getElementById('app');
 const CLAVE = 'obras.token';
 const CLAVE_ACCESOS = 'obras.accesos';
@@ -180,7 +180,7 @@ function pantallaIngreso(mensaje) {
           arrancar();
         },
       },
-        h('h2', null, 'Obras'),
+        h('h2', null, 'Construir'),
         mensaje ? h('p', { class: 'nota' }, mensaje) : null,
         h('p', { class: 'sub' }, 'Para entrar hace falta el link personal que te pasó el propietario o el arquitecto de la obra.'),
         h('label', { for: 'codigo' }, 'Link de acceso', campo),
@@ -933,7 +933,7 @@ async function arrancar() {
     yo = d.persona;
     obra = d.obra;
     recordarAcceso();
-    document.title = obra.nombre + ' · Obras';
+    document.title = obra.nombre + ' · Construir';
     await mostrar();
   } catch (e) {
     if (token) app.replaceChildren(h('main', null, h('p', { class: 'vacio' }, e.message), h('button', { class: 'principal', type: 'button', onclick: arrancar }, 'Reintentar')));

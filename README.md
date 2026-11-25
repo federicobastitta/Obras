@@ -1,5 +1,7 @@
-# Obras
+# Construir
 
+
+El nombre de la app es **Construir**; por dentro (repo, servicio y carpetas del servidor) sigue llamándose `obras`.
 App para llevar los pendientes de una obra entre el propietario, el arquitecto y el constructor.
 Se instala en el celular (PWA) y cada persona entra con su link personal, sin contraseña.
 

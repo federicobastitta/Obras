@@ -1,5 +1,5 @@
 // Guarda las pantallas para que la app abra aunque la señal sea mala. Los datos siempre se piden al servidor.
-const CACHE = 'obras-v1';
+const CACHE = 'construir-v1';
 const BASE = ['/', '/app.js', '/estilos.css', '/manifest.webmanifest', '/iconos/icono-192.png'];
 
 self.addEventListener('install', (e) => {

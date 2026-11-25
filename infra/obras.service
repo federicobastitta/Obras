@@ -1,5 +1,5 @@
 [Unit]
-Description=Obras (pendientes de obra)
+Description=Construir (pendientes de obra)
 After=network.target
 
 [Service]
