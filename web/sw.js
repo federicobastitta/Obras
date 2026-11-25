@@ -1,5 +1,5 @@
 // Guarda las pantallas para que la app abra aunque la señal sea mala. Los datos siempre se piden al servidor.
-const CACHE = 'construir-v4';
+const CACHE = 'construir-v5';
 const BASE = ['/', '/app.js', '/estilos.css', '/manifest.webmanifest', '/iconos/icono-192.png', '/fuentes/inter-regular.woff', '/fuentes/inter-medium.woff', '/fuentes/inter-semibold.woff'];
 
 self.addEventListener('install', (e) => {

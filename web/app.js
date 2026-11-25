@@ -1,4 +1,4 @@
-// Construir: tareas, presupuestos, plazos, fotos y pagos de una obra.
+// Construir: tareas, presupuestos, plazos, fotos y pagos de una obra (presupuestos y pagos apagados: CON_PRESUPUESTOS).
 const app = document.getElementById('app');
 const CLAVE = 'obras.token';
 const CLAVE_ACCESOS = 'obras.accesos';
@@ -62,8 +62,10 @@ if (pideAutorizacion()) {
   if (antes) window.addEventListener('pointerdown', () => activarMovimiento(), { once: true });
 }
 
+// Dueño 25/11/2026: «por ahora sacá todo lo que dice presupuestos», «va a ser de uso interno». En true vuelve todo.
+const CON_PRESUPUESTOS = false;
 const ESTADOS = {
-  pendiente: ['Sin presupuesto', 'pend'],
+  pendiente: [CON_PRESUPUESTOS ? 'Sin presupuesto' : 'Pendiente', 'pend'],
   presupuestada: ['Presupuesto a aprobar', 'info'],
   aprobada: ['Aprobada, por hacer', 'info'],
   realizada: ['Realizada, a verificar', 'pend'],
@@ -295,8 +297,8 @@ function pantallaIngreso(mensaje) {
         h('span', { class: 'logo' }, h('span', { class: 'marca-logo' }, ico('casa')), 'Construir'),
         h('a', { class: 'boton', href: '#entrar', onclick: irAEntrar }, 'Entrar')),
       h('div', { class: 'ancho-pagina' },
-        h('h1', null, 'Los pendientes de tu obra, con precio, fecha y responsable.'),
-        h('p', { class: 'bajada' }, 'Cargás lo que falta hacer, el constructor lo presupuesta y le pone fecha de entrega, y vos aprobás y verificás desde el celular. Todo queda escrito: nadie discute qué se pidió ni cuánto se acordó.'),
+        h('h1', null, CON_PRESUPUESTOS ? 'Los pendientes de tu obra, con precio, fecha y responsable.' : 'Los pendientes de cada sede, con fecha y responsable.'),
+        h('p', { class: 'bajada' }, CON_PRESUPUESTOS ? 'Cargás lo que falta hacer, el constructor lo presupuesta y le pone fecha de entrega, y vos aprobás y verificás desde el celular. Todo queda escrito: nadie discute qué se pidió ni cuánto se acordó.' : 'Cargás lo que hay que hacer en cada sede, mantenimiento lo resuelve y lo marca como realizado, y vos lo verificás desde el celular. Todo queda escrito.'),
         h('div', { class: 'fila' },
           h('a', { class: 'boton principal', href: '#entrar', onclick: irAEntrar }, 'Ya tengo mi link de acceso')))),
     h('main', { class: 'inicio' },
@@ -305,17 +307,17 @@ function pantallaIngreso(mensaje) {
         h('h2', null, 'Qué hacés como arquitecto'),
         h('div', { class: 'funciones' },
           funcion('lista', 'Cargás los pendientes', 'Tarea por tarea, ordenadas por ambiente y con prioridad. Les sumás fotos para mostrar qué hay que hacer.'),
-          funcion('billete', 'Recibís el presupuesto', 'El constructor cotiza cada tarea, o junta varias con un solo precio. Siempre con fecha de entrega y una nota de qué incluye.'),
+          CON_PRESUPUESTOS && funcion('billete', 'Recibís el presupuesto', 'El constructor cotiza cada tarea, o junta varias con un solo precio. Siempre con fecha de entrega y una nota de qué incluye.'),
           funcion('check', 'Aprobás o rechazás', 'Con un toque. Si rechazás, queda escrito el motivo y el constructor puede volver a cotizar.'),
           funcion('ojo', 'Verificás el trabajo', 'Cuando el constructor marca una tarea como realizada, la revisás: la das por terminada o la devolvés con el motivo.'),
-          funcion('grafico', 'Controlás la plata', 'Registrás anticipos y pagos. El resumen muestra presupuestado, aprobado, pagado y saldo, por ambiente y en total.'),
+          CON_PRESUPUESTOS && funcion('grafico', 'Controlás la plata', 'Registrás anticipos y pagos. El resumen muestra presupuestado, aprobado, pagado y saldo, por ambiente y en total.'),
           funcion('carpeta', 'Llevás varias obras', 'Cada obra tiene sus tareas, su gente y sus números por separado. Pasás de una a otra desde la misma app.'))),
       h('section', null,
         h('h2', null, 'El recorrido de cada tarea'),
         h('p', { class: 'sub' }, 'En todo momento se ve en qué etapa está cada pendiente y a quién le toca moverlo.'),
         h('ol', { class: 'circuito' },
-          etapa('pend', 'Sin presupuesto', 'Cotiza el constructor'),
-          etapa('info', 'Presupuesto a aprobar', 'Aprobás vos'),
+          CON_PRESUPUESTOS && etapa('pend', 'Sin presupuesto', 'Cotiza el constructor'),
+          CON_PRESUPUESTOS && etapa('info', 'Presupuesto a aprobar', 'Aprobás vos'),
           etapa('info', 'Aprobada, por hacer', 'Trabaja el constructor'),
           etapa('pend', 'Realizada, a verificar', 'Verificás vos'),
           etapa('ok', 'Terminada', 'Queda en el historial'))),
@@ -331,7 +333,7 @@ function pantallaIngreso(mensaje) {
         h('ol', { class: 'pasos' },
           paso('Entrás con tu link.', 'Lo recibís por WhatsApp y lo abrís en el celular. Se puede instalar como una app.'),
           paso('Sumás a las personas.', 'Al constructor y al propietario les generás su propio link desde la pestaña Personas.'),
-          paso('Cargás los pendientes.', 'El constructor los ve al instante y empieza a presupuestar.'))),
+          paso('Cargás los pendientes.', CON_PRESUPUESTOS ? 'El constructor los ve al instante y empieza a presupuestar.' : 'Quien los hace los ve al instante.'))),
       mensaje ? null : entrar,
     ),
   );
@@ -385,7 +387,7 @@ function marco(actual, ...contenido) {
       h('nav', { class: 'pestanas' },
         pestana('', 'Inicio'),
         pestana('tareas', 'Tareas'),
-        pestana('presupuestos', 'Presupuestos'),
+        CON_PRESUPUESTOS ? pestana('presupuestos', 'Presupuestos') : null,
         pestana('resumen', 'Resumen'),
         esDireccion() && !yo.pide ? pestana('personas', 'Personas') : null,
       ),
@@ -745,7 +747,7 @@ async function vistaTarea(id) {
         chipEstado(t),
         t.prioridad !== 'media' ? h('span', { class: 'chip' + (t.prioridad === 'alta' ? ' mal' : '') }, 'Prioridad ' + t.prioridad) : null,
         h('span', null, 'Cargada el ' + dia(t.creada)))),
-    presupuesto, avance, cajaFotos, cajaArchivos, cajaHistorial, edicion,
+    CON_PRESUPUESTOS ? presupuesto : null, avance, cajaFotos, cajaArchivos, cajaHistorial, edicion,
   );
 }
 
@@ -782,8 +784,8 @@ async function vistaResumen() {
       h('p', { class: 'grande' }, `${avance}%`),
       h('p', { class: 'sub' }, `${hechas} de ${tareas.length} tareas terminadas`),
       h('div', { class: 'cifras' },
-        h('div', null, h('strong', null, cuenta((t) => t.estado === 'pendiente')), h('span', { class: 'sub' }, 'Sin presupuesto')),
-        h('div', null, h('strong', null, cuenta((t) => t.estado === 'presupuestada')), h('span', { class: 'sub' }, 'Presupuesto a aprobar')),
+        h('div', null, h('strong', null, cuenta((t) => t.estado === 'pendiente')), h('span', { class: 'sub' }, CON_PRESUPUESTOS ? 'Sin presupuesto' : 'Pendientes')),
+        CON_PRESUPUESTOS ? h('div', null, h('strong', null, cuenta((t) => t.estado === 'presupuestada')), h('span', { class: 'sub' }, 'Presupuesto a aprobar')) : null,
         h('div', null, h('strong', null, cuenta((t) => t.estado === 'aprobada' || t.estado === 'devuelta')), h('span', { class: 'sub' }, 'Por hacer')),
         h('div', null, h('strong', null, cuenta((t) => t.estado === 'realizada')), h('span', { class: 'sub' }, 'A verificar')),
         h('div', null, h('strong', { class: cuenta(vencida) ? 'vencida' : null }, cuenta(vencida)), h('span', { class: 'sub' }, 'Con plazo vencido')))),
@@ -800,7 +802,7 @@ async function vistaResumen() {
       monto: g.estado === 'rechazado' ? 0 : g.monto, aprobado: g.estado === 'aprobado' ? g.monto : 0,
     })),
   ];
-  for (const moneda of ['ARS', 'USD']) {
+  for (const moneda of CON_PRESUPUESTOS ? ['ARS', 'USD'] : []) {
     const con = renglones.filter((r) => r.moneda === moneda);
     if (!con.length) continue;
     const suma = (lista, campo) => lista.reduce((n, r) => n + r[campo], 0);
@@ -826,7 +828,7 @@ async function vistaResumen() {
           h('tfoot', null, fila('Total', con, 'th')))),
       h('p', { class: 'sub' }, 'Saldo = aprobado menos pagado.')));
   }
-  if (cajas.length === 1) cajas.push(h('p', { class: 'vacio' }, 'Todavía no hay presupuestos ni pagos cargados.'));
+  if (cajas.length === 1 && CON_PRESUPUESTOS) cajas.push(h('p', { class: 'vacio' }, 'Todavía no hay presupuestos ni pagos cargados.'));
   marco('resumen', ...cajas);
 }
 
@@ -1359,7 +1361,7 @@ async function vistaInicio() {
         h('span', { class: 'datos' },
           f.tocan ? h('span', { class: 'chip info' }, `${f.tocan} para vos`) : null,
           f.vencidas ? h('span', { class: 'chip mal' }, `${f.vencidas} ${f.vencidas === 1 ? 'vencida' : 'vencidas'}`) : null,
-          Object.entries(f.saldos).filter(([, n]) => n).map(([moneda, n]) => h('span', null, `Saldo ${plata(n, moneda)}`)),
+          Object.entries(CON_PRESUPUESTOS ? f.saldos : {}).filter(([, n]) => n).map(([moneda, n]) => h('span', null, `Saldo ${plata(n, moneda)}`)),
           f.persona && f.persona.limitado ? h('span', null, rotulo(f.persona)) : null)),
       dirige ? h('button', { class: 'engranaje', type: 'button', onclick: () => editarObra(f), 'aria-label': `Cambiar nombre o tipo de ${f.obra.nombre}` }, 'Editar') : null);
   });
@@ -1368,7 +1370,7 @@ async function vistaInicio() {
   const pendientes = fichas.flatMap((f) => f.aAprobar).sort((a, b) => (a.plazo || '').localeCompare(b.plazo || ''));
   const totales = {};
   for (const x of pendientes) totales[x.moneda] = (totales[x.moneda] || 0) + x.monto;
-  const cajaAprobar = !dirigidas.length ? [] : [
+  const cajaAprobar = !dirigidas.length || !CON_PRESUPUESTOS ? [] : [
     h('h2', { class: 'grupo' }, 'Presupuestos a aprobar',
       h('small', null, pendientes.length ? Object.entries(totales).map(([moneda, n]) => plata(n, moneda)).join(' + ') : '')),
     pendientes.length
@@ -1530,7 +1532,7 @@ async function mostrar() {
   const ruta = location.hash.replace(/^#\/?/, '');
   try {
     if (ruta.startsWith('tarea/')) await vistaTarea(Number(ruta.slice(6)));
-    else if (ruta === 'presupuestos') await vistaPresupuestos();
+    else if (ruta === 'presupuestos' && CON_PRESUPUESTOS) await vistaPresupuestos();
     else if (ruta === 'resumen') await vistaResumen();
     else if (ruta === 'personas') await vistaPersonas();
     else if (ruta === 'tareas') await vistaLista();
