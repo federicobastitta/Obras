@@ -452,3 +452,20 @@ test('quien pide entra desde Conectar o FC, ve solo sus pedidos; el equipo los h
     app2.servidor.close();
   }
 });
+
+test('tarea fuera de los pedidos: solo quien ejecuta, con foto obligatoria, queda realizada', async () => {
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 3)]);
+  const dario = (await pedir(duena, 'POST', '/api/personas', { nombre: 'Darío', rol: 'constructor' })).datos.token;
+  const ruta = `/api/tareas/fuera-de-pedido?texto=${encodeURIComponent('Cambié la lámpara del pasillo')}&lugar=Pasillo`;
+  assert.equal((await pedir(duena, 'POST', ruta, jpg)).codigo, 403);
+  assert.equal((await pedir(dario, 'POST', ruta, Buffer.alloc(0))).codigo, 400);
+  assert.equal((await pedir(dario, 'POST', ruta, Buffer.from('<html>'))).codigo, 400);
+  assert.equal((await pedir(dario, 'POST', '/api/tareas/fuera-de-pedido?lugar=x', jpg)).codigo, 400);
+  const r = await pedir(dario, 'POST', ruta, jpg);
+  assert.equal(r.codigo, 201);
+  const t = (await pedir(duena, 'GET', `/api/tareas/${r.datos.id}`)).datos;
+  assert.equal(t.tarea.estado, 'realizada');
+  assert.equal(t.tarea.fuera_de_pedido, 1);
+  assert.equal(t.fotos.length, 1);
+  assert.equal(t.fotos[0].momento, 'despues');
+});

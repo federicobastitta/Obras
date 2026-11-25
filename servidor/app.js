@@ -393,6 +393,31 @@ export function crearApp({ dirDatos, dirWeb, sistemas = SISTEMAS, pedir = fetch,
       }
     }
 
+    // «Crear tarea fuera de los pedidos» (dueño 25/11/2026): quien ejecuta (Darío, Alejandro) carga algo que hizo sin que
+    // estuviera pedido. La foto es obligatoria y viaja en el mismo pedido, así nunca queda una tarea suelta sin foto.
+    if (a === 'tareas' && id === 'fuera-de-pedido' && !b && m === 'POST') {
+      soloConstructor(p);
+      const textoTarea = texto(url.searchParams.get('texto'), 400, { requerido: true, nombre: 'La tarea' });
+      const lugar = texto(url.searchParams.get('lugar'), 60, { nombre: 'El lugar' });
+      const cuerpo = await leerCuerpo(req, MAX_FOTO);
+      if (!cuerpo.length) throw falla(400, 'Falta la foto: es obligatoria para una tarea fuera de los pedidos.');
+      const tipo = tipoDeImagen(cuerpo);
+      if (!tipo) throw falla(400, 'El archivo no es una foto (JPG, PNG o WebP).');
+      const t = ahora();
+      const nuevo = Number(db
+        .prepare(`INSERT INTO tareas (obra_id, lugar, texto, prioridad, asignada_a, creada_por, creada, estado, realizada_en, fuera_de_pedido)
+          VALUES (?, ?, ?, 'media', ?, ?, ?, 'realizada', ?, 1)`)
+        .run(p.obra_id, lugar, textoTarea, p.id, p.id, t, t).lastInsertRowid);
+      const archivo = `${nuevo}-${nuevoToken().slice(0, 16)}${tipo[1]}`;
+      fs.writeFileSync(path.join(dirFotos, archivo), cuerpo);
+      db.prepare('INSERT INTO fotos (tarea_id, persona_id, momento, archivo, tipo, fecha) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(nuevo, p.id, 'despues', archivo, tipo[0], t);
+      anotar(nuevo, p, 'creada', 'fuera de los pedidos');
+      anotar(nuevo, p, 'realizada');
+      anotar(nuevo, p, 'foto', 'después');
+      return responder(201, { id: nuevo });
+    }
+
     if (a === 'tareas' && id && !b) {
       const t = buscarTarea(id, p);
       if (m === 'GET') {
