@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS personas (
   nombre TEXT NOT NULL,
   rol TEXT NOT NULL CHECK (rol IN ('propietario','arquitecto','constructor')),
   token TEXT NOT NULL UNIQUE,
+  rubro TEXT NOT NULL DEFAULT '',
+  limitado INTEGER NOT NULL DEFAULT 0,
   activa INTEGER NOT NULL DEFAULT 1,
   creada TEXT NOT NULL
 );
@@ -41,6 +43,7 @@ CREATE TABLE IF NOT EXISTS tareas (
   id INTEGER PRIMARY KEY,
   obra_id INTEGER NOT NULL REFERENCES obras(id),
   grupo_id INTEGER REFERENCES grupos(id) ON DELETE SET NULL,
+  asignada_a INTEGER REFERENCES personas(id),
   lugar TEXT NOT NULL DEFAULT '',
   texto TEXT NOT NULL,
   prioridad TEXT NOT NULL DEFAULT 'media' CHECK (prioridad IN ('alta','media','baja')),
@@ -97,10 +100,16 @@ CREATE INDEX IF NOT EXISTS pagos_tarea ON pagos(tarea_id);
 export function abrirBase(ruta) {
   const db = new DatabaseSync(ruta);
   db.exec(ESQUEMA);
-  // Bases creadas antes de que las obras tuvieran tipo.
-  if (!db.prepare('PRAGMA table_info(obras)').all().some((c) => c.name === 'tipo')) {
-    db.exec("ALTER TABLE obras ADD COLUMN tipo TEXT NOT NULL DEFAULT ''");
-  }
+  // Columnas sumadas después de la primera instalación: se agregan a las bases que ya existen.
+  const asegurar = (tabla, columna, definicion) => {
+    if (!db.prepare(`PRAGMA table_info(${tabla})`).all().some((c) => c.name === columna)) {
+      db.exec(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${definicion}`);
+    }
+  };
+  asegurar('obras', 'tipo', "TEXT NOT NULL DEFAULT ''");
+  asegurar('personas', 'rubro', "TEXT NOT NULL DEFAULT ''");
+  asegurar('personas', 'limitado', 'INTEGER NOT NULL DEFAULT 0');
+  asegurar('tareas', 'asignada_a', 'INTEGER REFERENCES personas(id)');
   return db;
 }
 

@@ -151,6 +151,44 @@ test('presupuesto en grupo: un monto para varias tareas, se aprueba junto y el a
   assert.deepEqual([suelta.tarea.estado, suelta.tarea.grupo_id, suelta.tarea.plazo, suelta.grupo], ['pendiente', null, null, null]);
 });
 
+test('proveedores: entran con su link y ven solo el trabajo que se les encargó', async () => {
+  assert.equal((await pedir(constructor, 'POST', '/api/proveedores', { nombre: 'x', rubro: 'y', tareas: ['z'] })).codigo, 403);
+  assert.equal((await pedir(duena, 'POST', '/api/proveedores', { nombre: 'Pedro', rubro: 'Plomería', tareas: [] })).codigo, 400);
+  const alta = await pedir(duena, 'POST', '/api/proveedores', { nombre: 'Pedro', rubro: 'Plomería', lugar: 'Baño', tareas: ['Cambiar flexibles', ' ', 'Destapar rejilla'] });
+  assert.equal(alta.codigo, 201);
+  assert.equal(alta.datos.tareas, 2);
+  const plomero = alta.datos.token;
+  const yo = (await pedir(plomero, 'GET', '/api/yo')).datos.persona;
+  assert.deepEqual([yo.rol, yo.rubro, yo.limitado], ['constructor', 'Plomería', true]);
+
+  const suyas = (await pedir(plomero, 'GET', '/api/tareas')).datos;
+  assert.deepEqual(suyas.tareas.map((t) => t.texto), ['Cambiar flexibles', 'Destapar rejilla']);
+  assert.deepEqual(suyas.grupos, [], 'no ve grupos de otros');
+  assert.equal((await pedir(plomero, 'GET', '/api/tareas/' + tareaId)).codigo, 404, 'no ve tareas ajenas');
+  assert.equal((await pedir(plomero, 'POST', `/api/tareas/${tareaId}/comentarios`, { texto: 'hola' })).codigo, 404);
+  assert.equal((await pedir(plomero, 'GET', '/api/personas')).codigo, 403);
+  const gruposAjenos = (await pedir(duena, 'GET', '/api/tareas')).datos.grupos;
+  assert.equal((await pedir(plomero, 'GET', '/api/grupos/' + gruposAjenos[0].id)).codigo, 404);
+
+  // Presupuesta sus dos trabajos juntos; el constructor general no puede sumar tareas ajenas... y el plomero tampoco.
+  const ids = suyas.tareas.map((t) => t.id);
+  assert.equal((await pedir(plomero, 'POST', '/api/grupos', { tareas: [ids[0], tareaId], monto: 1, plazo: '2026-12-30' })).codigo, 404);
+  const g = await pedir(plomero, 'POST', '/api/grupos', { nombre: 'Plomería baño', tareas: ids, monto: 70000, plazo: '2026-12-30' });
+  assert.equal(g.codigo, 201);
+  assert.equal((await pedir(plomero, 'GET', '/api/tareas')).datos.grupos.length, 1);
+  assert.equal((await pedir(duena, 'POST', `/api/grupos/${g.datos.id}/accion`, { accion: 'aprobar' })).codigo, 200);
+  assert.equal((await pedir(plomero, 'POST', `/api/tareas/${ids[0]}/accion`, { accion: 'realizada' })).codigo, 200);
+
+  // La dirección ve a quién está encargada cada tarea, y puede encargar una tarea existente.
+  const vista = (await pedir(duena, 'GET', '/api/tareas')).datos.tareas.find((t) => t.id === ids[0]);
+  assert.deepEqual([vista.asignada_nombre, vista.asignada_rubro], ['Pedro', 'Plomería']);
+  const nueva = (await pedir(duena, 'POST', '/api/tareas', { texto: 'Revisar termotanque', asignada_a: alta.datos.id })).datos.id;
+  assert.equal((await pedir(plomero, 'GET', '/api/tareas/' + nueva)).codigo, 200);
+  assert.equal((await pedir(duena, 'PATCH', '/api/tareas/' + nueva, { asignada_a: null })).codigo, 200);
+  assert.equal((await pedir(plomero, 'GET', '/api/tareas/' + nueva)).codigo, 404, 'al sacársela deja de verla');
+  assert.equal((await pedir(duena, 'POST', '/api/tareas', { texto: 'x', asignada_a: 999999 })).codigo, 400);
+});
+
 test('obras nuevas: las crea quien dirige, y arrancan vacías y separadas', async () => {
   assert.equal((await pedir(constructor, 'POST', '/api/obras', { nombre: 'Quincho' })).codigo, 403);
   assert.equal((await pedir(duena, 'POST', '/api/obras', { nombre: '  ' })).codigo, 400);
