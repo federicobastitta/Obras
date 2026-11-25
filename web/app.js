@@ -1116,7 +1116,19 @@ function selectorDeTipo(id, actual = '') {
 }
 
 async function vistaInicio() {
-  const lista = accesos();
+  // En un mismo celular puede haber links de distintas personas (por ejemplo, el dueño que prueba el link de un proveedor).
+  // El Inicio muestra solo las obras del perfil con el que se entró: misma persona y mismo rol. Nunca se mezclan.
+  const perfilDe = (x) => [x.persona, x.rol, x.limitado ? 1 : 0].join('|');
+  const miPerfil = perfilDe({ persona: yo.nombre, rol: yo.rol, limitado: yo.limitado });
+  const guardados = accesos();
+  const lista = guardados.filter((x) => perfilDe(x) === miPerfil || x.token === token);
+  const otrosPerfiles = new Map();
+  for (const x of guardados) {
+    if (lista.includes(x)) continue;
+    const k = perfilDe(x);
+    if (!otrosPerfiles.has(k)) otrosPerfiles.set(k, { ...x, obras: 0 });
+    otrosPerfiles.get(k).obras += 1;
+  }
   const enDias = (n) => { const f = new Date(); f.setDate(f.getDate() + n); return `${f.getFullYear()}-${dosDigitos(f.getMonth() + 1)}-${dosDigitos(f.getDate())}`; };
   const limite = enDias(7);
   const fichas = await Promise.all(lista.map(async (x) => {
@@ -1155,7 +1167,7 @@ async function vistaInicio() {
       return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {}, porVencer: [], aAprobar: [], fotos: [], actividad: [] };
     }
   }));
-  guardarAccesos(lista.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '' } : x; }));
+  guardarAccesos(guardados.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '', persona: f.persona.nombre, rol: f.persona.rol, rubro: f.persona.rubro || '', limitado: !!f.persona.limitado } : x; }));
   fichas.sort((a, b) => b.tocan - a.tocan || b.vencidas - a.vencidas);
   const dirigidas = fichas.filter((f) => !f.error && (f.rol === 'propietario' || f.rol === 'arquitecto'));
   const suma = (campo) => fichas.reduce((n, f) => n + f[campo], 0);
@@ -1328,7 +1340,7 @@ async function vistaInicio() {
   }
 
   // ----- cuadros -----
-  const ICONO_ACCION = { 'Nueva obra': 'mas', 'Nuevo proveedor': 'usuariomas', 'Sumar proveedor con un link': 'enlace', 'Datos de demo': 'flask', 'Quitar la demo': 'papelera' };
+  const ICONO_ACCION = { 'Nueva obra': 'mas', 'Nuevo proveedor': 'usuariomas', 'Sumar proveedor con un link': 'enlace', 'Sumar obra con un link': 'enlace', 'Datos de demo': 'flask', 'Quitar la demo': 'papelera' };
   const accion = (titulo, detalle, alTocar) => h('button', { class: 'cuadro accion', type: 'button', onclick: alTocar },
     h('span', { class: 'mas', 'aria-hidden': 'true' }, ico(ICONO_ACCION[titulo] || 'mas')), h('strong', null, titulo), h('span', { class: 'sub' }, detalle));
   const dato = (valor, texto, clase) => h('div', { class: 'numero' + (clase && valor ? ' ' + clase : '') }, h('span', { class: 'cifra' }, valor), h('span', { class: 'sub' }, texto));
@@ -1488,13 +1500,20 @@ async function vistaInicio() {
       dirigidas.length ? accion('Nueva obra', 'Vivienda, clínica, local…', nuevaObra) : null,
       dirigidas.length ? accion('Nuevo proveedor', 'Plomero, electricista… con su link', nuevoProveedor) : null,
       dirigidas.length ? (hayDemo ? accion('Quitar la demo', 'Borra las obras de ejemplo', quitarDemoUI) : accion('Datos de demo', 'Obras de ejemplo con todo cargado', cargarDemoUI)) : null,
-      accion('Sumar proveedor con un link', 'Con el link que te pasaron', sumarConLink)),
+      accion(dirigidas.length ? 'Sumar proveedor con un link' : 'Sumar obra con un link', 'Con el link que te pasaron', sumarConLink)),
     ...cajaAprobar,
     ...cajaVencimientos,
     ...cajaActividad,
     h('h2', { class: 'grupo' }, fichas.length === 1 ? 'Tu obra' : 'Tus obras', h('small', null, 'Tocá una para abrirla')),
     h('div', { class: 'cuadros obras' }, cuadrosDeObra),
     ...cajaFotos,
+    otrosPerfiles.size ? h('h2', { class: 'grupo' }, 'Otros accesos en este celular', h('small', null, 'No se mezclan con este')) : null,
+    otrosPerfiles.size ? h('ul', { class: 'lista' }, [...otrosPerfiles.values()].map((x) =>
+      h('li', { class: 'aprobar' },
+        h('div', { class: 'cuerpo' },
+          h('span', { class: 'texto' }, x.persona || 'Sin nombre'),
+          h('span', { class: 'datos' }, h('span', null, rotulo(x)), h('span', null, `${x.obras} ${x.obras === 1 ? 'obra' : 'obras'}`))),
+        h('button', { class: 'chico', type: 'button', onclick: () => cambiarDeObra(x.token) }, 'Entrar con este acceso')))) : null,
   );
   // Las fotos se piden después de dibujar, cada una con el link de su obra.
   for (const [f, img] of porCargar) {
@@ -1536,7 +1555,7 @@ async function arrancar() {
         const r = await fetch('/api/yo', { headers: { Authorization: 'Bearer ' + k } });
         if (!r.ok) continue;
         const d = await r.json();
-        guardarAccesos([...accesos().filter((x) => x.token !== k), { token: k, obra: d.obra.nombre, persona: d.persona.nombre, rol: d.persona.rol }]);
+        guardarAccesos([...accesos().filter((x) => x.token !== k), { token: k, obra: d.obra.nombre, tipo: d.obra.tipo || '', persona: d.persona.nombre, rol: d.persona.rol, rubro: d.persona.rubro || '', limitado: !!d.persona.limitado }]);
       } catch {}
     }
     guardarToken(primero);
