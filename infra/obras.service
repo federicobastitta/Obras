@@ -1,0 +1,20 @@
+[Unit]
+Description=Obras (pendientes de obra)
+After=network.target
+
+[Service]
+User=obras
+WorkingDirectory=/opt/obras
+Environment=PUERTO=3400
+Environment=DIR_DATOS=/var/lib/obras
+EnvironmentFile=-/etc/obras/obras.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning servidor/index.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/obras
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

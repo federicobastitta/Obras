@@ -1,0 +1,12 @@
+{
+  "name": "obras",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pendientes de obra: tareas, presupuestos, plazos, fotos y pagos entre propietario, arquitecto y constructor.",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning servidor/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test pruebas/*.test.js"
+  }
+}
