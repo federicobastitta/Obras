@@ -183,3 +183,22 @@ export function cargarTareas(db, { id, obra, tipo = '', tareas, propietario = 'P
     throw e;
   }
 }
+
+/**
+ * Da de alta varias obras vacías con un mismo propietario, una sola vez por identificador.
+ * Devuelve { hecho, tokens } con el acceso de propietario de cada obra, en el mismo orden.
+ */
+export function altaDeObras(db, { id, propietario, obras }) {
+  db.exec('CREATE TABLE IF NOT EXISTS cargas (id TEXT PRIMARY KEY, fecha TEXT NOT NULL)');
+  if (db.prepare('SELECT 1 FROM cargas WHERE id = ?').get(id)) return { hecho: false, tokens: [] };
+  db.exec('BEGIN');
+  try {
+    const tokens = obras.map((o) => crearObra(db, { nombre: o.nombre, tipo: o.tipo || '', propietario }).token);
+    db.prepare('INSERT INTO cargas (id, fecha) VALUES (?, ?)').run(id, ahora());
+    db.exec('COMMIT');
+    return { hecho: true, tokens };
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
