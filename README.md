@@ -10,6 +10,7 @@ Se instala en el celular (PWA) y cada persona entra con su link personal, sin co
 - El propietario o el arquitecto aprueban o rechazan el presupuesto (el rechazo pide motivo).
 - El constructor marca la tarea como realizada; el propietario o el arquitecto la verifican o la devuelven con el motivo.
 - Fotos de antes y después, comentarios, pagos y un historial de quién hizo qué y cuándo.
+- Varias obras: quien dirige una obra puede crear otra desde la pestaña Obras y pasar de una a otra.
 - Resumen: avance, tareas con plazo vencido y plata presupuestada, aprobada, pagada y saldo por lugar.
 
 Estados de una tarea: sin presupuesto → presupuesto a aprobar → aprobada → realizada → terminada (o devuelta).
@@ -41,5 +42,4 @@ Desde la pestaña Personas, el propietario crea los links del arquitecto y del c
 ## Lo que todavía no tiene
 
 Avisos al celular o por WhatsApp, varios gremios que vean solo lo suyo, dependencias entre tareas,
-uso sin señal (hoy abre las pantallas pero necesita conexión para los datos), exportar a PDF o Excel
-y crear una segunda obra desde la propia app.
+uso sin señal (hoy abre las pantallas pero necesita conexión para los datos), y exportar a PDF o Excel.

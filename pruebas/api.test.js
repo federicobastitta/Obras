@@ -108,6 +108,20 @@ test('fotos y comentarios', async () => {
   assert.equal((await pedir(duena, 'DELETE', '/api/fotos/' + sub.datos.id)).codigo, 200);
 });
 
+test('obras nuevas: las crea quien dirige, y arrancan vacías y separadas', async () => {
+  assert.equal((await pedir(constructor, 'POST', '/api/obras', { nombre: 'Quincho' })).codigo, 403);
+  assert.equal((await pedir(duena, 'POST', '/api/obras', { nombre: '  ' })).codigo, 400);
+  const alta = await pedir(duena, 'POST', '/api/obras', { nombre: 'Quincho' });
+  assert.equal(alta.codigo, 201);
+  const yo = (await pedir(alta.datos.token, 'GET', '/api/yo')).datos;
+  assert.equal(yo.obra.nombre, 'Quincho');
+  assert.equal(yo.persona.nombre, 'Dueña');
+  assert.equal(yo.persona.rol, 'propietario');
+  assert.equal((await pedir(alta.datos.token, 'GET', '/api/tareas')).datos.tareas.length, 0);
+  assert.equal((await pedir(alta.datos.token, 'GET', '/api/tareas/' + tareaId)).codigo, 404);
+  assert.equal((await pedir(duena, 'GET', '/api/tareas')).datos.tareas.length, 1);
+});
+
 test('dar de baja a una persona le corta el acceso', async () => {
   const personas = (await pedir(duena, 'GET', '/api/personas')).datos.personas;
   const c = personas.find((x) => x.rol === 'constructor');

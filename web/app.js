@@ -1,6 +1,7 @@
 // Obras: tareas, presupuestos, plazos, fotos y pagos de una obra.
 const app = document.getElementById('app');
 const CLAVE = 'obras.token';
+const CLAVE_ACCESOS = 'obras.accesos';
 
 let token = null;
 let yo = null;
@@ -99,9 +100,17 @@ async function api(metodo, ruta, cuerpo) {
     throw new Error('No hay conexión. Probá de nuevo cuando vuelva la señal.');
   }
   if (r.status === 401) {
+    const quedan = accesos().filter((x) => x.token !== token);
+    guardarAccesos(quedan);
     try { localStorage.removeItem(CLAVE); } catch {}
     token = null;
-    pantallaIngreso('El link de acceso no es válido o fue dado de baja.');
+    yo = null;
+    if (quedan.length) {
+      avisar('Ese acceso fue dado de baja. Pasaste a otra de tus obras.', true);
+      cambiarDeObra(quedan[quedan.length - 1].token);
+    } else {
+      pantallaIngreso('El link de acceso no es válido o fue dado de baja.');
+    }
     throw new Error('Acceso no válido.');
   }
   const datos = await r.json().catch(() => ({}));
@@ -170,6 +179,31 @@ function guardarToken(k) {
   try { localStorage.setItem(CLAVE, k); } catch {}
 }
 
+// Un link por obra: el celular recuerda todos los que se abrieron para poder pasar de una obra a otra.
+function accesos() {
+  try {
+    const lista = JSON.parse(localStorage.getItem(CLAVE_ACCESOS) || '[]');
+    return Array.isArray(lista) ? lista.filter((x) => x && typeof x.token === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+function guardarAccesos(lista) {
+  try { localStorage.setItem(CLAVE_ACCESOS, JSON.stringify(lista)); } catch {}
+}
+function recordarAcceso() {
+  const lista = accesos().filter((x) => x.token !== token);
+  lista.push({ token, obra: obra.nombre, persona: yo.nombre, rol: yo.rol });
+  guardarAccesos(lista);
+}
+function cambiarDeObra(k) {
+  guardarToken(k);
+  yo = null;
+  filtro = null;
+  if (location.hash && location.hash !== '#/') history.replaceState(null, '', location.pathname);
+  arrancar();
+}
+
 // ---------- marco ----------
 function marco(actual, ...contenido) {
   for (const u of urlsDeFotos) URL.revokeObjectURL(u);
@@ -185,6 +219,7 @@ function marco(actual, ...contenido) {
         pestana('', 'Tareas'),
         pestana('resumen', 'Resumen'),
         esDireccion() ? pestana('personas', 'Personas') : null,
+        pestana('obras', 'Obras'),
       ),
     ),
     h('main', null, ...contenido),
@@ -630,6 +665,49 @@ async function vistaPersonas() {
   );
 }
 
+// ---------- obras ----------
+function vistaObras() {
+  const lista = accesos();
+  const nombre = h('input', { id: 'o-nombre', type: 'text', maxlength: 80, required: true, placeholder: 'Quincho, local, casa de fin de semana…' });
+  const link = h('input', { id: 'o-link', type: 'text', autocomplete: 'off', placeholder: 'Pegá acá el link que te pasaron' });
+  marco('obras',
+    h('section', { class: 'caja' },
+      h('h2', null, 'Tus obras en este celular'),
+      h('ul', { class: 'historial' }, lista.map((x) =>
+        h('li', null,
+          h('span', { class: 'fila entre' },
+            h('span', null, h('strong', null, x.obra), ` · ${ROLES[x.rol] || ''}`, x.token === token ? ' (abierta)' : ''),
+            x.token !== token ? h('button', { class: 'chico', type: 'button', onclick: () => cambiarDeObra(x.token) }, 'Abrir') : null)))),
+      lista.length < 2 ? h('p', { class: 'sub' }, 'Cuando tengas más de una obra, desde acá pasás de una a otra.') : null),
+    esDireccion() ? h('form', {
+      class: 'caja',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        let nueva;
+        const ok = await hacer(e.submitter, async () => { nueva = await api('POST', '/obras', { nombre: nombre.value }); }, 'Obra creada.');
+        if (ok) cambiarDeObra(nueva.token);
+      },
+    },
+      h('h2', null, 'Nueva obra'),
+      h('p', { class: 'sub' }, `Arranca vacía y entrás como ${ROLES[yo.rol].toLowerCase()}. Después sumás a las personas desde la pestaña Personas.`),
+      h('label', { for: 'o-nombre' }, 'Nombre de la obra', nombre),
+      h('button', { class: 'principal', type: 'submit' }, 'Crear obra')) : null,
+    h('form', {
+      class: 'caja',
+      onsubmit: (e) => {
+        e.preventDefault();
+        const v = link.value.trim();
+        const k = (v.match(/k=([0-9a-f]{20,})/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
+        if (!k) return avisar('Ese link no tiene un código de acceso.', true);
+        cambiarDeObra(k);
+      },
+    },
+      h('h2', null, 'Sumar una obra con un link'),
+      h('label', { for: 'o-link' }, 'Link de acceso', link),
+      h('button', { type: 'submit' }, 'Entrar a esa obra')),
+  );
+}
+
 // ---------- rutas ----------
 async function mostrar() {
   if (!token || !yo) return;
@@ -638,6 +716,7 @@ async function mostrar() {
     if (ruta.startsWith('tarea/')) await vistaTarea(Number(ruta.slice(6)));
     else if (ruta === 'resumen') await vistaResumen();
     else if (ruta === 'personas') await vistaPersonas();
+    else if (ruta === 'obras') vistaObras();
     else await vistaLista();
     window.scrollTo(0, 0);
   } catch (e) {
@@ -661,6 +740,7 @@ async function arrancar() {
     const d = await api('GET', '/yo');
     yo = d.persona;
     obra = d.obra;
+    recordarAcceso();
     document.title = obra.nombre + ' · Obras';
     await mostrar();
   } catch (e) {

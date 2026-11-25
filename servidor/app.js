@@ -198,6 +198,18 @@ export function crearApp({ dirDatos, dirWeb }) {
       });
     }
 
+    if (a === 'obras' && !id && m === 'POST') {
+      // Quien dirige una obra puede abrir otra: entra a la nueva con el mismo nombre y rol, y un link propio.
+      soloDireccion(p);
+      const c = await leerJson(req);
+      const nombre = texto(c.nombre, 80, { requerido: true, nombre: 'El nombre de la obra' });
+      const t = ahora();
+      const obraId = db.prepare('INSERT INTO obras (nombre, creada) VALUES (?, ?)').run(nombre, t).lastInsertRowid;
+      const tk = nuevoToken();
+      db.prepare('INSERT INTO personas (obra_id, nombre, rol, token, creada) VALUES (?, ?, ?, ?, ?)').run(obraId, p.nombre, p.rol, tk, t);
+      return responder(201, { token: tk, obra: { id: Number(obraId), nombre } });
+    }
+
     if (a === 'tareas' && !id) {
       if (m === 'GET') return responder(200, { tareas: q.tareas.all(p.obra_id) });
       if (m === 'POST') {
