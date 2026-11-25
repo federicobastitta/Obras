@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { abrirBase, altaDeEquipo } from './db.js';
+import { abrirBase, altaDeEquipo, llaveDeEquipo } from './db.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dirDatos = path.resolve(process.env.DIR_DATOS || path.join(raiz, 'datos'));
@@ -12,9 +12,10 @@ const db = abrirBase(path.join(dirDatos, 'obras.db'));
 db.exec('PRAGMA busy_timeout = 5000');
 const r = altaDeEquipo(db, alta);
 if (!r.hecho) console.log(`El alta «${alta.id}» ya estaba hecha: no se repite.`);
-else {
-  const base = (process.env.URL_BASE || '').replace(/\/$/, '');
-  const archivo = path.join(dirDatos, path.basename(alta.archivo || 'acceso-equipo.txt'));
-  fs.writeFileSync(archivo, r.personas.map((x) => `${x.nombre}: ${base}/#k=${x.tokens.join(',')}`).join('\n') + '\n', { mode: 0o600 });
-  console.log(`Alta «${alta.id}»: ${r.personas.map((x) => x.nombre).join(', ')}. Links en ${archivo}`);
-}
+else console.log(`Alta «${alta.id}»: ${r.personas.map((x) => x.nombre).join(', ')}.`);
+// Link de cada uno, con un solo código (llave) que abre todas sus sedes: se reescribe en cada instalación.
+const base = (process.env.URL_BASE || '').replace(/\/$/, '');
+const archivo = path.join(dirDatos, path.basename(alta.archivo || 'acceso-equipo.txt'));
+const lineas = alta.personas.map((x) => `${x.nombre}: ${base}/#l=${llaveDeEquipo(db, { propietario: alta.propietario, nombre: x.nombre })}`);
+fs.writeFileSync(archivo, lineas.join('\n') + '\n', { mode: 0o600 });
+console.log(`Links del equipo en ${archivo}`);
