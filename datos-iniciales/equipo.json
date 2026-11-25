@@ -1,0 +1,9 @@
+{
+  "id": "2026-11-25-equipo-diagnosticar",
+  "propietario": "Diagnosticar",
+  "archivo": "acceso-equipo-diagnosticar.txt",
+  "personas": [
+    { "nombre": "Darío", "rubro": "Mantenimiento" },
+    { "nombre": "Alejandro", "rubro": "Mantenimiento" }
+  ]
+}

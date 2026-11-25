@@ -100,6 +100,16 @@ if [ -f datos-iniciales/altas.json ]; then
   ) || echo "== AVISO: no se pudo hacer el alta de obras."
 fi
 
+# Equipo que hace las tareas de un propietario (datos-iniciales/equipo.json): una sola vez por identificador. Si falla, la instalación sigue.
+if [ -f datos-iniciales/equipo.json ]; then
+  echo "== Alta del equipo"
+  (
+    set -a; . /etc/obras/obras.env; set +a
+    runuser -u obras -- env URL_BASE="${URL_BASE:-}" DIR_DATOS=/var/lib/obras \
+      "$NODE" --disable-warning=ExperimentalWarning servidor/equipo-cli.js
+  ) || echo "== AVISO: no se pudo hacer el alta del equipo."
+fi
+
 # Demostración: si el repo trae datos-iniciales/demo.json, deja cargadas las obras de ejemplo con ese arquitecto.
 # Corre como el usuario de la app, para que la base y las fotos queden a su nombre. Si falla, la instalación sigue.
 if [ -f datos-iniciales/demo.json ]; then

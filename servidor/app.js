@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { abrirBase, ahora, nuevoToken, TIPOS_DE_OBRA } from './db.js';
+import { abrirBase, ahora, nuevoToken, TIPOS_DE_OBRA, entradaDeQuienPide } from './db.js';
 import { cargarDemo } from './demo.js';
 
 const TIPOS = {
@@ -86,7 +86,14 @@ async function leerJson(req) {
   }
 }
 
-export function crearApp({ dirDatos, dirWeb }) {
+// Sistemas desde los que se entra con el usuario de allá. Cada uno da un código de un solo uso que Construir
+// le pregunta a ese sistema (así no hace falta compartir ninguna clave). Las direcciones se pueden cambiar por variable.
+const SISTEMAS = {
+  conectar: process.env.VERIFICAR_CONECTAR || 'https://aws.mi-conectar.com/api/construir/verificar',
+  fc: process.env.VERIFICAR_FC || 'https://15-229-225-185.sslip.io/construir/verificar',
+};
+
+export function crearApp({ dirDatos, dirWeb, sistemas = SISTEMAS, pedir = fetch, propietarioDeLosPedidos = process.env.PROPIETARIO_PEDIDOS || 'Diagnosticar' }) {
   fs.mkdirSync(path.join(dirDatos, 'fotos'), { recursive: true });
   fs.mkdirSync(path.join(dirDatos, 'archivos'), { recursive: true });
   const db = abrirBase(path.join(dirDatos, 'obras.db'));
@@ -157,6 +164,12 @@ export function crearApp({ dirDatos, dirWeb }) {
   };
 
   const esDireccion = (p) => p.rol === 'propietario' || p.rol === 'arquitecto';
+  /** Quien pide tareas desde Conectar o FC no maneja la obra: no suma personas, proveedores ni obras. */
+  const noPide = (p) => {
+    if (p.pide) throw falla(403, 'Desde tu acceso solo se cargan y siguen pedidos.');
+  };
+  /** Qué tareas ve cada uno: un proveedor, las que tiene asignadas; quien pide, las que cargó él. */
+  const veTarea = (p, t) => (!p.limitado || t.asignada_a === p.id) && (!p.pide || t.creada_por === p.id);
   const soloDireccion = (p) => {
     if (!esDireccion(p)) throw falla(403, 'Esto solo lo puede hacer el propietario o el arquitecto.');
   };
@@ -166,7 +179,7 @@ export function crearApp({ dirDatos, dirWeb }) {
   const buscarTarea = (id, p) => {
     const t = q.tarea.get(Number(id), p.obra_id);
     // Un proveedor (acceso limitado) solo llega a los trabajos que tiene asignados.
-    if (!t || (p.limitado && t.asignada_a !== p.id)) throw falla(404, 'No se encontró la tarea.');
+    if (!t || !veTarea(p, t)) throw falla(404, 'No se encontró la tarea.');
     return t;
   };
   /** Valida a quién se le encarga una tarea: tiene que ser alguien que ejecuta (constructor o proveedor) de esta obra. */
@@ -240,9 +253,41 @@ export function crearApp({ dirDatos, dirWeb }) {
     }
   }
 
+  // Códigos ya usados (cada código entra una sola vez, aunque el otro sistema tarde en olvidarlo).
+  const usados = new Map();
+  async function entrar(req, res) {
+    const c = await leerJson(req);
+    const sistema = typeof c.sistema === 'string' ? c.sistema : '';
+    const codigo = typeof c.codigo === 'string' ? c.codigo : '';
+    if (!Object.hasOwn(sistemas, sistema)) throw falla(400, 'No se reconoce desde dónde querés entrar.');
+    if (!/^[A-Za-z0-9_-]{20,128}$/.test(codigo)) throw falla(400, 'El código de entrada no es válido.');
+    const clave = sistema + ':' + codigo;
+    const ahoraMs = Date.now();
+    for (const [k, v] of usados) if (v < ahoraMs) usados.delete(k);
+    if (usados.has(clave)) throw falla(401, 'Ese código ya se usó. Volvé a entrar desde ' + (sistema === 'fc' ? 'FC' : 'Conectar') + '.');
+    usados.set(clave, ahoraMs + 10 * 60 * 1000);
+    let datos;
+    try {
+      const r = await pedir(sistemas[sistema] + '?codigo=' + encodeURIComponent(codigo), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+      if (!r.ok) throw falla(401, 'El código venció o no es válido. Volvé a entrar desde ' + (sistema === 'fc' ? 'FC' : 'Conectar') + '.');
+      datos = await r.json();
+    } catch (e) {
+      if (e instanceof ErrorHttp) throw e;
+      throw falla(502, 'No se pudo confirmar tu usuario con ' + (sistema === 'fc' ? 'FC' : 'Conectar') + '. Probá de nuevo en un rato.');
+    }
+    const usuario = String(datos?.usuario ?? '').trim().slice(0, 80);
+    const nombre = String(datos?.nombre ?? '').trim().slice(0, 60) || usuario;
+    if (!usuario) throw falla(401, 'El código venció o no es válido.');
+    const tokens = entradaDeQuienPide(db, { propietario: propietarioDeLosPedidos, externo: sistema + ':' + usuario, nombre });
+    if (!tokens.length) throw falla(403, 'Tu acceso está dado de baja o todavía no hay sedes para cargar pedidos.');
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ tokens }));
+  }
+
   async function api(req, res, url) {
     const m = req.method;
     const partes = url.pathname.split('/').filter(Boolean).slice(1); // sin "api"
+    if (partes[0] === 'entrar' && partes.length === 1 && m === 'POST') return entrar(req, res);
     const aut = req.headers.authorization || '';
     const token = aut.startsWith('Bearer ') ? aut.slice(7).trim() : '';
     const p = token ? q.persona.get(token) : null;
@@ -256,7 +301,7 @@ export function crearApp({ dirDatos, dirWeb }) {
 
     if (a === 'yo' && m === 'GET') {
       return responder(200, {
-        persona: { id: p.id, nombre: p.nombre, rol: p.rol, rubro: p.rubro, limitado: !!p.limitado },
+        persona: { id: p.id, nombre: p.nombre, rol: p.rol, rubro: p.rubro, limitado: !!p.limitado, pide: !!p.pide },
         obra: { id: p.obra_id, nombre: p.obra_nombre, tipo: p.obra_tipo, demo: !!p.obra_demo },
       });
     }
@@ -264,6 +309,7 @@ export function crearApp({ dirDatos, dirWeb }) {
     if (a === 'demo' && !id && (m === 'POST' || m === 'DELETE')) {
       // Obras de demostración: se cargan con todo completo para mostrar la app y se pueden borrar enteras.
       soloDireccion(p);
+      noPide(p);
       if (m === 'POST') {
         if (db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n) {
           throw falla(409, 'Ya hay datos de demostración cargados. Quitalos primero si querés volver a empezar.');
@@ -278,6 +324,7 @@ export function crearApp({ dirDatos, dirWeb }) {
     if (a === 'obras' && !id && m === 'POST') {
       // Quien dirige una obra puede abrir otra: entra a la nueva con el mismo nombre y rol, y un link propio.
       soloDireccion(p);
+      noPide(p);
       const c = await leerJson(req);
       const nombre = texto(c.nombre, 80, { requerido: true, nombre: 'El nombre de la obra' });
       const tipo = TIPOS_DE_OBRA.includes(c.tipo) ? c.tipo : '';
@@ -290,6 +337,7 @@ export function crearApp({ dirDatos, dirWeb }) {
 
     if (a === 'obra' && !id && m === 'PATCH') {
       soloDireccion(p);
+      noPide(p);
       const c = await leerJson(req);
       const nombre = texto(c.nombre ?? p.obra_nombre, 80, { requerido: true, nombre: 'El nombre de la obra' });
       const tipo = c.tipo === undefined ? p.obra_tipo : TIPOS_DE_OBRA.includes(c.tipo) ? c.tipo : '';
@@ -306,6 +354,10 @@ export function crearApp({ dirDatos, dirWeb }) {
           lista = lista.filter((t) => t.asignada_a === p.id);
           const propios = new Set(lista.map((t) => t.grupo_id).filter(Boolean));
           grupos = grupos.filter((g) => propios.has(g.id) && !ajenos.has(g.id));
+        }
+        if (p.pide) {
+          lista = lista.filter((t) => t.creada_por === p.id);
+          grupos = [];
         }
         return responder(200, { tareas: lista, grupos });
       }
@@ -433,6 +485,7 @@ export function crearApp({ dirDatos, dirWeb }) {
     }
 
     if (a === 'grupos') {
+      noPide(p);
       // Presupuesto en grupo: un solo monto y un plazo para varias tareas. El avance sigue siendo tarea por tarea.
       if (!id && m === 'POST') {
         soloConstructor(p);
@@ -540,9 +593,9 @@ export function crearApp({ dirDatos, dirWeb }) {
 
     if (a === 'archivos' && id) {
       const f = db
-        .prepare('SELECT a.*, t.obra_id, t.asignada_a FROM archivos a JOIN tareas t ON t.id = a.tarea_id WHERE a.id = ?')
+        .prepare('SELECT a.*, t.obra_id, t.asignada_a, t.creada_por FROM archivos a JOIN tareas t ON t.id = a.tarea_id WHERE a.id = ?')
         .get(Number(id));
-      if (!f || f.obra_id !== p.obra_id || (p.limitado && f.asignada_a !== p.id)) throw falla(404, 'No se encontró el archivo.');
+      if (!f || f.obra_id !== p.obra_id || !veTarea(p, f)) throw falla(404, 'No se encontró el archivo.');
       if (m === 'GET') {
         const ruta = path.join(dirArchivos, f.archivo);
         if (!fs.existsSync(ruta)) throw falla(404, 'No se encontró el archivo.');
@@ -567,7 +620,8 @@ export function crearApp({ dirDatos, dirWeb }) {
       // Lo último que pasó en la obra: quién hizo qué en cada tarea. Un proveedor solo ve lo de sus trabajos.
       const filas = db.prepare(`SELECT e.id, e.tipo, e.detalle, e.fecha, e.tarea_id, t.texto AS tarea, p.nombre AS persona, p.rol, p.rubro
           FROM eventos e JOIN tareas t ON t.id = e.tarea_id LEFT JOIN personas p ON p.id = e.persona_id
-          WHERE t.obra_id = ? AND (? = 0 OR t.asignada_a = ?) ORDER BY e.fecha DESC, e.id DESC LIMIT 30`).all(p.obra_id, p.limitado ? 1 : 0, p.id);
+          WHERE t.obra_id = ? AND (? = 0 OR t.asignada_a = ?) AND (? = 0 OR t.creada_por = ?) ORDER BY e.fecha DESC, e.id DESC LIMIT 30`)
+        .all(p.obra_id, p.limitado ? 1 : 0, p.id, p.pide ? 1 : 0, p.id);
       return responder(200, { eventos: filas });
     }
 
@@ -575,15 +629,16 @@ export function crearApp({ dirDatos, dirWeb }) {
       // Últimas fotos que subieron el constructor y los proveedores (para el Inicio). Un proveedor solo ve las de sus trabajos.
       const filas = db.prepare(`SELECT f.id, f.tarea_id, f.momento, f.fecha, t.texto AS tarea, p.nombre AS persona
           FROM fotos f JOIN tareas t ON t.id = f.tarea_id JOIN personas p ON p.id = f.persona_id
-          WHERE t.obra_id = ? AND p.rol = 'constructor' AND (? = 0 OR t.asignada_a = ?) ORDER BY f.id DESC LIMIT 12`).all(p.obra_id, p.limitado ? 1 : 0, p.id);
+          WHERE t.obra_id = ? AND p.rol = 'constructor' AND (? = 0 OR t.asignada_a = ?) AND (? = 0 OR t.creada_por = ?) ORDER BY f.id DESC LIMIT 12`)
+        .all(p.obra_id, p.limitado ? 1 : 0, p.id, p.pide ? 1 : 0, p.id);
       return responder(200, { fotos: filas });
     }
 
     if (a === 'fotos' && id) {
       const f = db
-        .prepare('SELECT f.*, t.obra_id, t.asignada_a FROM fotos f JOIN tareas t ON t.id = f.tarea_id WHERE f.id = ?')
+        .prepare('SELECT f.*, t.obra_id, t.asignada_a, t.creada_por FROM fotos f JOIN tareas t ON t.id = f.tarea_id WHERE f.id = ?')
         .get(Number(id));
-      if (!f || f.obra_id !== p.obra_id || (p.limitado && f.asignada_a !== p.id)) throw falla(404, 'No se encontró la foto.');
+      if (!f || f.obra_id !== p.obra_id || !veTarea(p, f)) throw falla(404, 'No se encontró la foto.');
       if (m === 'GET') {
         const ruta = path.join(dirFotos, f.archivo);
         if (!fs.existsSync(ruta)) throw falla(404, 'No se encontró la foto.');
@@ -602,6 +657,7 @@ export function crearApp({ dirDatos, dirWeb }) {
     if (a === 'proveedores' && !id && m === 'POST') {
       // Alta de un proveedor (plomero, electricista…) con el trabajo que se le encarga: entra con su link y ve solo eso.
       soloDireccion(p);
+      noPide(p);
       const c = await leerJson(req);
       const nombre = texto(c.nombre, 60, { requerido: true, nombre: 'El nombre del proveedor' });
       const rubro = texto(c.rubro, 40, { requerido: true, nombre: 'El rubro' });
@@ -629,6 +685,7 @@ export function crearApp({ dirDatos, dirWeb }) {
 
     if (a === 'personas') {
       soloDireccion(p);
+      noPide(p);
       if (m === 'GET' && !id) return responder(200, { personas: q.personas.all(p.obra_id) });
       if (m === 'POST' && !id) {
         const c = await leerJson(req);

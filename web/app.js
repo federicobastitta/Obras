@@ -86,7 +86,7 @@ const chipPresupuesto = (estado) => h('span', { class: 'chip ' + ESTADOS_PRESUPU
 const TIPOS_DE_OBRA = ['Vivienda', 'Clínica o consultorio', 'Local comercial', 'Oficina', 'Edificio', 'Industria o depósito', 'Espacio exterior', 'Otra'];
 const RUBROS = ['Plomería', 'Electricidad', 'Albañilería', 'Pintura', 'Carpintería', 'Herrería', 'Gas', 'Durlock y yesería', 'Pisos y revestimientos', 'Aire acondicionado', 'Pileta', 'Jardinería', 'Vidrios y aberturas', 'Techos e impermeabilización'];
 /** Cómo se nombra a una persona según su rol: un constructor con acceso limitado es un proveedor de un rubro. */
-const rotulo = (p) => (p.limitado ? `Proveedor${p.rubro ? ' · ' + p.rubro : ''}` : ROLES[p.rol] + (p.rubro ? ' · ' + p.rubro : ''));
+const rotulo = (p) => (p.pide ? 'Pide tareas' : p.limitado ? `Proveedor${p.rubro ? ' · ' + p.rubro : ''}` : ROLES[p.rol] + (p.rubro ? ' · ' + p.rubro : ''));
 const CLAVE_TIPO = { 'Vivienda': 'vivienda', 'Clínica o consultorio': 'clinica', 'Local comercial': 'local', 'Oficina': 'oficina', 'Edificio': 'edificio', 'Industria o depósito': 'industria', 'Espacio exterior': 'exterior' };
 const ROLES = { propietario: 'Propietario', arquitecto: 'Arquitecto', constructor: 'Constructor' };
 const EVENTOS = {
@@ -355,7 +355,7 @@ function guardarAccesos(lista) {
 }
 function recordarAcceso() {
   const lista = accesos().filter((x) => x.token !== token);
-  lista.push({ token, obra: obra.nombre, tipo: obra.tipo || '', persona: yo.nombre, rol: yo.rol, rubro: yo.rubro || '', limitado: !!yo.limitado });
+  lista.push({ token, obra: obra.nombre, tipo: obra.tipo || '', persona: yo.nombre, rol: yo.rol, rubro: yo.rubro || '', limitado: !!yo.limitado, pide: !!yo.pide });
   guardarAccesos(lista);
 }
 function cambiarDeObra(k, destino = '') {
@@ -387,7 +387,7 @@ function marco(actual, ...contenido) {
         pestana('tareas', 'Tareas'),
         pestana('presupuestos', 'Presupuestos'),
         pestana('resumen', 'Resumen'),
-        esDireccion() ? pestana('personas', 'Personas') : null,
+        esDireccion() && !yo.pide ? pestana('personas', 'Personas') : null,
       ),
     ),
     h('main', null, ...contenido),
@@ -1118,8 +1118,8 @@ function selectorDeTipo(id, actual = '') {
 async function vistaInicio() {
   // En un mismo celular puede haber links de distintas personas (por ejemplo, el dueño que prueba el link de un proveedor).
   // El Inicio muestra solo las obras del perfil con el que se entró: misma persona y mismo rol. Nunca se mezclan.
-  const perfilDe = (x) => [x.persona, x.rol, x.limitado ? 1 : 0].join('|');
-  const miPerfil = perfilDe({ persona: yo.nombre, rol: yo.rol, limitado: yo.limitado });
+  const perfilDe = (x) => [x.persona, x.rol, x.limitado ? 1 : 0, x.pide ? 1 : 0].join('|');
+  const miPerfil = perfilDe({ persona: yo.nombre, rol: yo.rol, limitado: yo.limitado, pide: yo.pide });
   const guardados = accesos();
   const lista = guardados.filter((x) => perfilDe(x) === miPerfil || x.token === token);
   const otrosPerfiles = new Map();
@@ -1167,9 +1167,9 @@ async function vistaInicio() {
       return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {}, porVencer: [], aAprobar: [], fotos: [], actividad: [] };
     }
   }));
-  guardarAccesos(guardados.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '', persona: f.persona.nombre, rol: f.persona.rol, rubro: f.persona.rubro || '', limitado: !!f.persona.limitado } : x; }));
+  guardarAccesos(guardados.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '', persona: f.persona.nombre, rol: f.persona.rol, rubro: f.persona.rubro || '', limitado: !!f.persona.limitado, pide: !!f.persona.pide } : x; }));
   fichas.sort((a, b) => b.tocan - a.tocan || b.vencidas - a.vencidas);
-  const dirigidas = fichas.filter((f) => !f.error && (f.rol === 'propietario' || f.rol === 'arquitecto'));
+  const dirigidas = fichas.filter((f) => !f.error && !(f.persona && f.persona.pide) && (f.rol === 'propietario' || f.rol === 'arquitecto'));
   const suma = (campo) => fichas.reduce((n, f) => n + f[campo], 0);
   const refrescar = () => { if (!location.hash.replace(/^#\/?/, '')) vistaInicio(); };
 
@@ -1545,6 +1545,20 @@ async function mostrar() {
 }
 
 async function arrancar() {
+  // Entrada desde Conectar o FC: traen un código de un solo uso que Construir confirma con ese sistema.
+  const desde = location.hash.match(/^#entrar=(conectar|fc):([A-Za-z0-9_-]{20,128})$/);
+  if (desde) {
+    history.replaceState(null, '', location.pathname);
+    try {
+      const r = await fetch('/api/entrar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sistema: desde[1], codigo: desde[2] }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'No se pudo entrar.');
+      history.replaceState(null, '', location.pathname + '#k=' + d.tokens.join(','));
+    } catch (e) {
+      app.replaceChildren(h('main', null, h('p', { class: 'vacio' }, e.message)));
+      return;
+    }
+  }
   // El link puede traer un código o varios separados por coma (uno por obra): se abre la primera y se recuerdan todas.
   const enLink = location.hash.match(/^#k=([0-9a-f]{20,}(?:,[0-9a-f]{20,})*)$/i);
   if (enLink) {
@@ -1555,7 +1569,7 @@ async function arrancar() {
         const r = await fetch('/api/yo', { headers: { Authorization: 'Bearer ' + k } });
         if (!r.ok) continue;
         const d = await r.json();
-        guardarAccesos([...accesos().filter((x) => x.token !== k), { token: k, obra: d.obra.nombre, tipo: d.obra.tipo || '', persona: d.persona.nombre, rol: d.persona.rol, rubro: d.persona.rubro || '', limitado: !!d.persona.limitado }]);
+        guardarAccesos([...accesos().filter((x) => x.token !== k), { token: k, obra: d.obra.nombre, tipo: d.obra.tipo || '', persona: d.persona.nombre, rol: d.persona.rol, rubro: d.persona.rubro || '', limitado: !!d.persona.limitado, pide: !!d.persona.pide }]);
       } catch {}
     }
     guardarToken(primero);
@@ -1576,7 +1590,7 @@ async function arrancar() {
 }
 
 window.addEventListener('hashchange', () => {
-  if (/^#k=/.test(location.hash)) { yo = null; arrancar(); } else mostrar();
+  if (/^#(k|entrar)=/.test(location.hash)) { yo = null; arrancar(); } else mostrar();
 });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 arrancar();

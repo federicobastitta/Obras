@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crearApp } from '../servidor/app.js';
-import { crearObra, abrirBase, cargarTareas, altaDeObras } from '../servidor/db.js';
+import { crearObra, abrirBase, cargarTareas, altaDeObras, altaDeEquipo } from '../servidor/db.js';
 import { asegurarDemo } from '../servidor/demo.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -374,4 +374,74 @@ test('alta de obras con un propietario: una sola vez, vacías y con acceso propi
   assert.equal((await pedir(r.tokens[0], 'GET', '/api/tareas/' + tareaId)).codigo, 404, 'no ve las obras de otros');
   assert.deepEqual(altaDeObras(db, { id: 'alta-prueba', propietario: 'Diagnosticar', obras }), { hecho: false, tokens: [] });
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM obras WHERE nombre LIKE 'Sede de prueba %'").get().n, 2);
+});
+
+test('quien pide entra desde Conectar o FC, ve solo sus pedidos; el equipo los hace y marca cuando termina', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'obras-pide-'));
+  const codigos = { ['c'.repeat(32)]: { usuario: '12', nombre: 'Ana de Recepción' }, ['f'.repeat(32)]: { usuario: 'florencia', nombre: 'florencia' }, ['g'.repeat(32)]: { usuario: '13', nombre: 'Beto' } };
+  const consultas = [];
+  const falso = async (url) => {
+    consultas.push(url);
+    const c = new URL(url).searchParams.get('codigo');
+    return codigos[c] ? { ok: true, json: async () => codigos[c] } : { ok: false, json: async () => ({}) };
+  };
+  const app2 = crearApp({ dirDatos: dir, dirWeb: path.join(raiz, 'web'), pedir: falso, sistemas: { conectar: 'https://conectar.test/verificar', fc: 'https://fc.test/verificar' } });
+  await new Promise((ok) => app2.servidor.listen(0, '127.0.0.1', ok));
+  const b2 = `http://127.0.0.1:${app2.servidor.address().port}`;
+  try {
+    const sedes = altaDeObras(app2.db, { id: 'sedes', propietario: 'Diagnosticar', obras: [{ nombre: 'Lomas' }, { nombre: 'Lanús' }] });
+    crearObra(app2.db, { nombre: 'Casa', propietario: 'Federico' });
+    const equipo = altaDeEquipo(app2.db, { id: 'eq', propietario: 'Diagnosticar', personas: [{ nombre: 'Darío', rubro: 'Mantenimiento' }, { nombre: 'Alejandro' }] });
+    assert.deepEqual(equipo.personas.map((x) => x.tokens.length), [2, 2], 'una persona por sede, no en la casa');
+    assert.equal(altaDeEquipo(app2.db, { id: 'eq', propietario: 'Diagnosticar', personas: [] }).hecho, false);
+
+    const entrar = async (sistema, codigo) => {
+      const r = await fetch(b2 + '/api/entrar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sistema, codigo }) });
+      return { codigo: r.status, datos: await r.json() };
+    };
+    const ana = await entrar('conectar', 'c'.repeat(32));
+    assert.equal(ana.codigo, 200);
+    assert.equal(ana.datos.tokens.length, 2, 'entra a las dos sedes de Diagnosticar');
+    assert.equal(consultas[0], 'https://conectar.test/verificar?codigo=' + 'c'.repeat(32));
+    assert.equal((await entrar('conectar', 'c'.repeat(32))).codigo, 401, 'el mismo código no entra dos veces');
+    assert.equal((await entrar('conectar', 'x'.repeat(32))).codigo, 401, 'un código que el otro sistema no reconoce no entra');
+    assert.equal((await entrar('otro', 'c'.repeat(32))).codigo, 400);
+
+    const p2 = async (tk, metodo, ruta, cuerpo) => {
+      const r = await fetch(b2 + ruta, { method: metodo, headers: { Authorization: 'Bearer ' + tk, ...(cuerpo ? { 'Content-Type': 'application/json' } : {}) }, body: cuerpo ? JSON.stringify(cuerpo) : undefined });
+      return { codigo: r.status, datos: await r.json().catch(() => ({})) };
+    };
+    const [anaLomas] = ana.datos.tokens;
+    const yo = (await p2(anaLomas, 'GET', '/api/yo')).datos;
+    assert.deepEqual([yo.persona.nombre, yo.persona.pide, yo.obra.nombre], ['Ana de Recepción', true, 'Lomas']);
+    const pedido = await p2(anaLomas, 'POST', '/api/tareas', { lugar: 'Baño planta baja', texto: 'Pierde la canilla' });
+    assert.equal(pedido.codigo, 201);
+
+    // Otra persona que pide no ve el pedido de Ana; la dueña sí.
+    const beto = (await entrar('conectar', 'g'.repeat(32))).datos.tokens[0];
+    assert.equal((await p2(beto, 'GET', '/api/tareas')).datos.tareas.length, 0);
+    assert.equal((await p2(beto, 'GET', '/api/tareas/' + pedido.datos.id)).codigo, 404);
+    assert.equal((await p2(sedes.tokens[0], 'GET', '/api/tareas')).datos.tareas.length, 1);
+    // Quien pide no maneja la obra.
+    assert.equal((await p2(anaLomas, 'GET', '/api/personas')).codigo, 403);
+    assert.equal((await p2(anaLomas, 'POST', '/api/obras', { nombre: 'X' })).codigo, 403);
+
+    // Darío ve el pedido y marca que lo terminó; Ana lo ve terminado y lo puede dar por verificado.
+    const dario = equipo.personas[0].tokens[0];
+    const suyas = (await p2(dario, 'GET', '/api/tareas')).datos.tareas;
+    assert.deepEqual(suyas.map((t) => t.texto), ['Pierde la canilla']);
+    assert.equal((await p2(dario, 'POST', `/api/tareas/${pedido.datos.id}/accion`, { accion: 'realizada' })).codigo, 200);
+    const visto = (await p2(anaLomas, 'GET', '/api/tareas/' + pedido.datos.id)).datos.tarea;
+    assert.equal(visto.estado, 'realizada');
+    assert.equal((await p2(anaLomas, 'POST', `/api/tareas/${pedido.datos.id}/accion`, { accion: 'verificar' })).codigo, 200);
+
+    // Entrar otra vez desde FC con otro usuario crea otro acceso; volver a entrar usa el mismo.
+    const flor = await entrar('fc', 'f'.repeat(32));
+    assert.equal(flor.codigo, 200);
+    assert.notDeepEqual(flor.datos.tokens, ana.datos.tokens);
+    codigos['h'.repeat(32)] = { usuario: '12', nombre: 'Ana' };
+    assert.deepEqual((await entrar('conectar', 'h'.repeat(32))).datos.tokens, ana.datos.tokens, 'mismo usuario, mismos accesos');
+  } finally {
+    app2.servidor.close();
+  }
 });
