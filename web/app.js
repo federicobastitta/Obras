@@ -164,28 +164,73 @@ async function achicar(archivo) {
   return new Promise((ok, mal) => lienzo.toBlob((b) => (b ? ok(b) : mal(new Error('No se pudo preparar la foto.'))), 'image/jpeg', 0.82));
 }
 
-// ---------- ingreso ----------
+// ---------- inicio (sin link de acceso) ----------
+// Página de presentación, pensada para un arquitecto: qué resuelve la app y cómo se entra.
 function pantallaIngreso(mensaje) {
+  document.title = 'Construir';
   const campo = h('input', { id: 'codigo', type: 'text', autocomplete: 'off', placeholder: 'Pegá acá tu link de acceso' });
+  const entrar = h('form', {
+    class: 'caja', id: 'entrar',
+    onsubmit: (e) => {
+      e.preventDefault();
+      const v = campo.value.trim();
+      const k = (v.match(/k=([0-9a-f]{20,}(?:,[0-9a-f]{20,})*)/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
+      if (!k) return avisar('Ese link no tiene un código de acceso.', true);
+      history.replaceState(null, '', location.pathname + '#k=' + k);
+      arrancar();
+    },
+  },
+    h('h2', null, 'Entrar a tu obra'),
+    mensaje ? h('p', { class: 'nota' }, mensaje) : null,
+    h('p', { class: 'sub' }, 'Cada persona entra con un link personal, sin usuario ni contraseña. Si ya te pasaron el tuyo, abrilo o pegalo acá.'),
+    h('label', { for: 'codigo' }, 'Link de acceso', campo),
+    h('button', { class: 'principal', type: 'submit' }, 'Entrar'));
+
+  const funcion = (titulo, texto) => h('article', { class: 'funcion' }, h('h3', null, titulo), h('p', null, texto));
+  const paso = (titulo, texto) => h('li', null, h('strong', null, titulo), h('span', null, texto));
+  const etapa = (clase, nombre, quien) => h('li', null, h('span', { class: 'chip ' + clase }, nombre), h('span', { class: 'sub' }, quien));
+
   app.replaceChildren(
-    h('main', null,
-      h('form', {
-        class: 'caja ingreso',
-        onsubmit: (e) => {
-          e.preventDefault();
-          const v = campo.value.trim();
-          const k = (v.match(/k=([0-9a-f]{20,})/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
-          if (!k) return avisar('Ese link no tiene un código de acceso.', true);
-          guardarToken(k);
-          arrancar();
-        },
-      },
-        h('h2', null, 'Construir'),
-        mensaje ? h('p', { class: 'nota' }, mensaje) : null,
-        h('p', { class: 'sub' }, 'Para entrar hace falta el link personal que te pasó el propietario o el arquitecto de la obra.'),
-        h('label', { for: 'codigo' }, 'Link de acceso', campo),
-        h('button', { class: 'principal', type: 'submit' }, 'Entrar'),
-      ),
+    h('header', { class: 'portada' },
+      h('div', { class: 'ancho-pagina' },
+        h('p', { class: 'marca' }, 'Construir'),
+        h('h1', null, 'Los pendientes de tu obra, con precio, fecha y responsable.'),
+        h('p', { class: 'bajada' }, 'Cargás lo que falta hacer, el constructor lo presupuesta y le pone fecha de entrega, y vos aprobás y verificás desde el celular. Todo queda escrito: nadie discute qué se pidió ni cuánto se acordó.'),
+        h('a', { class: 'boton claro', href: '#entrar', onclick: (e) => { e.preventDefault(); entrar.scrollIntoView({ behavior: 'smooth' }); campo.focus({ preventScroll: true }); } }, 'Ya tengo mi link de acceso'))),
+    h('main', { class: 'inicio' },
+      mensaje ? entrar : null,
+      h('section', null,
+        h('h2', null, 'Qué hacés como arquitecto'),
+        h('div', { class: 'funciones' },
+          funcion('Cargás los pendientes', 'Tarea por tarea, ordenadas por ambiente (cocina, baños, galería…) y con prioridad. Les sumás fotos para mostrar exactamente qué hay que hacer.'),
+          funcion('Recibís el presupuesto', 'El constructor cotiza cada tarea, o junta varias y les pone un solo precio. Siempre con fecha de entrega y una nota de qué incluye.'),
+          funcion('Aprobás o rechazás', 'Con un toque. Si rechazás, queda escrito el motivo y el constructor puede volver a cotizar.'),
+          funcion('Verificás el trabajo', 'Cuando el constructor marca una tarea como realizada, la revisás: la das por terminada o la devolvés con el motivo.'),
+          funcion('Controlás la plata', 'Registrás anticipos y pagos. El resumen muestra presupuestado, aprobado, pagado y saldo, por ambiente y en total, en pesos o dólares.'),
+          funcion('Llevás varias obras', 'Cada obra tiene sus tareas, su gente y sus números por separado. Pasás de una a otra desde la misma app.'))),
+      h('section', null,
+        h('h2', null, 'El recorrido de cada tarea'),
+        h('p', { class: 'sub' }, 'En todo momento se ve en qué etapa está cada pendiente y a quién le toca moverlo.'),
+        h('ol', { class: 'circuito' },
+          etapa('pend', 'Sin presupuesto', 'Cotiza el constructor'),
+          etapa('info', 'Presupuesto a aprobar', 'Aprobás vos'),
+          etapa('info', 'Aprobada, por hacer', 'Trabaja el constructor'),
+          etapa('pend', 'Realizada, a verificar', 'Verificás vos'),
+          etapa('ok', 'Terminada', 'Queda en el historial'))),
+      h('section', null,
+        h('h2', null, 'Lo que queda registrado'),
+        h('div', { class: 'funciones' },
+          funcion('Fotos de antes y después', 'Las sube cualquiera desde el celular, en la tarea que corresponde.'),
+          funcion('Comentarios', 'Las preguntas y aclaraciones quedan en la tarea, no perdidas en un chat.'),
+          funcion('Historial', 'Quién cargó, cotizó, aprobó, pagó o devolvió cada cosa, con fecha y hora.'),
+          funcion('Plazos vencidos', 'Las tareas que pasaron su fecha de entrega se marcan en rojo.'))),
+      h('section', null,
+        h('h2', null, 'Cómo se empieza'),
+        h('ol', { class: 'pasos' },
+          paso('Entrás con tu link.', 'Lo recibís por WhatsApp y lo abrís en el celular. Se puede instalar como una app.'),
+          paso('Sumás a las personas.', 'Al constructor y al propietario les generás su propio link desde la pestaña Personas.'),
+          paso('Cargás los pendientes.', 'El constructor los ve al instante y empieza a presupuestar.'))),
+      mensaje ? null : entrar,
     ),
   );
 }
