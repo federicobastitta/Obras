@@ -728,10 +728,20 @@ async function mostrar() {
 }
 
 async function arrancar() {
-  const enLink = location.hash.match(/^#k=([0-9a-f]{20,})$/i);
+  // El link puede traer un código o varios separados por coma (uno por obra): se abre la primera y se recuerdan todas.
+  const enLink = location.hash.match(/^#k=([0-9a-f]{20,}(?:,[0-9a-f]{20,})*)$/i);
   if (enLink) {
-    guardarToken(enLink[1]);
+    const [primero, ...resto] = enLink[1].split(',');
     history.replaceState(null, '', location.pathname);
+    for (const k of resto) {
+      try {
+        const r = await fetch('/api/yo', { headers: { Authorization: 'Bearer ' + k } });
+        if (!r.ok) continue;
+        const d = await r.json();
+        guardarAccesos([...accesos().filter((x) => x.token !== k), { token: k, obra: d.obra.nombre, persona: d.persona.nombre, rol: d.persona.rol }]);
+      } catch {}
+    }
+    guardarToken(primero);
   } else if (!token) {
     try { token = localStorage.getItem(CLAVE); } catch {}
   }

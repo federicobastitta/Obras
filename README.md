@@ -20,7 +20,7 @@ Estados de una tarea: sin presupuesto → presupuesto a aprobar → aprobada →
 - `servidor/`: Node 22 sin dependencias (`node:http` y `node:sqlite`). La base y las fotos van a la carpeta de datos.
 - `web/`: las pantallas, en JavaScript simple, sin paso de compilación.
 - `pruebas/`: pruebas del servidor (`npm test`).
-- `datos-iniciales/casa.json`: las tareas con las que arranca la primera obra.
+- `datos-iniciales/obras.json`: las obras con las que arranca (Casa con sus tareas de `casa.json`, y las sedes, vacías).
 
 ## Correrla
 
@@ -30,7 +30,7 @@ npm start
 
 Variables: `PUERTO` (3400), `DIR_DATOS` (`./datos`), `ESCUCHAR` (`127.0.0.1`), `URL_BASE`, `OBRA_NOMBRE`, `PROPIETARIO`.
 
-La primera vez crea la obra inicial y deja el link del propietario en `<DIR_DATOS>/primer-acceso.txt`.
+La primera vez crea las obras iniciales y deja en `<DIR_DATOS>/primer-acceso.txt` un link que las abre todas juntas.
 Desde la pestaña Personas, el propietario crea los links del arquitecto y del constructor.
 
 ## Servidor

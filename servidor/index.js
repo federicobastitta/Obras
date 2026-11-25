@@ -10,19 +10,24 @@ const puerto = Number(process.env.PUERTO || 3400);
 
 const { servidor, db } = crearApp({ dirDatos, dirWeb: path.join(raiz, 'web') });
 
-// Primera vez: crea la obra inicial y deja el link del propietario en datos/primer-acceso.txt.
+// Primera vez: crea las obras de datos-iniciales/obras.json con un mismo propietario y deja en
+// datos/primer-acceso.txt un link que abre todas juntas (y debajo, el link de cada una).
 if (db.prepare('SELECT COUNT(*) AS n FROM obras').get().n === 0) {
-  const inicial = path.join(raiz, 'datos-iniciales', 'casa.json');
-  const tareas = fs.existsSync(inicial) ? JSON.parse(fs.readFileSync(inicial, 'utf8')) : [];
-  const { token } = crearObra(db, {
-    nombre: process.env.OBRA_NOMBRE || 'Casa',
-    propietario: process.env.PROPIETARIO || 'Propietario',
-    tareas,
-  });
+  const dirInicial = path.join(raiz, 'datos-iniciales');
+  const lista = JSON.parse(fs.readFileSync(path.join(dirInicial, 'obras.json'), 'utf8'));
+  const propietario = process.env.PROPIETARIO || 'Propietario';
   const base = (process.env.URL_BASE || `http://localhost:${puerto}`).replace(/\/$/, '');
+  const creadas = lista.map((o) => {
+    const tareas = o.tareas ? JSON.parse(fs.readFileSync(path.join(dirInicial, o.tareas), 'utf8')) : [];
+    return { nombre: o.nombre, cantidad: tareas.length, token: crearObra(db, { nombre: o.nombre, propietario, tareas }).token };
+  });
   const archivo = path.join(dirDatos, 'primer-acceso.txt');
-  fs.writeFileSync(archivo, `${base}/#k=${token}\n`, { mode: 0o600 });
-  console.log(`Obra inicial creada con ${tareas.length} tareas. Link del propietario en ${archivo}`);
+  fs.writeFileSync(
+    archivo,
+    [`Todas las obras: ${base}/#k=${creadas.map((c) => c.token).join(',')}`, ...creadas.map((c) => `${c.nombre}: ${base}/#k=${c.token}`)].join('\n') + '\n',
+    { mode: 0o600 },
+  );
+  console.log(`Obras iniciales creadas: ${creadas.map((c) => `${c.nombre} (${c.cantidad} tareas)`).join(', ')}. Links en ${archivo}`);
 }
 
 servidor.listen(puerto, process.env.ESCUCHAR || '127.0.0.1', () => {

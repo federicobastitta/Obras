@@ -1,0 +1,9 @@
+[
+  { "nombre": "Casa", "tareas": "casa.json" },
+  { "nombre": "Lomas de Zamora" },
+  { "nombre": "Lanús" },
+  { "nombre": "Sede Central Berazategui" },
+  { "nombre": "Centro Cardiológico" },
+  { "nombre": "Centro de la Mujer" },
+  { "nombre": "Centro de Kinesiología" }
+]
