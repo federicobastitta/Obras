@@ -32,9 +32,9 @@ Estados de una tarea: sin presupuesto → presupuesto a aprobar → aprobada →
 ## Cómo está hecha
 
 - `servidor/`: Node 22 sin dependencias (`node:http` y `node:sqlite`). La base y las fotos van a la carpeta de datos.
-- `web/`: las pantallas, en JavaScript simple, sin paso de compilación. Diseño: hoja de plano (hormigón, tinta, cinta
-  métrica amarilla como indicador de avance, solapa de carpeta por tipo de obra). Tipografías Carlito y Caladea incluidas
-  en `web/fuentes/` (licencia OFL), así la app no depende de ningún sitio externo.
+- `web/`: las pantallas, en JavaScript simple, sin paso de compilación. Diseño sobrio, de herramienta de gestión: superficies
+  blancas sobre gris frío, líneas finas, un azul marino de marca, el color solo para el estado (punto y palabra) e íconos de
+  línea. Tipografía Inter incluida en `web/fuentes/` (licencia OFL), así la app no depende de ningún sitio externo.
 - `pruebas/`: pruebas del servidor (`npm test`).
 - `datos-iniciales/obras.json`: las obras con las que arranca (Casa con sus tareas de `casa.json`, y las sedes, vacías).
 

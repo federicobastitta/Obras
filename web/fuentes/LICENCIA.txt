@@ -1,7 +1,6 @@
-Tipografías incluidas en la app, con licencia SIL Open Font License 1.1 (https://openfontlicense.org):
+Tipografía incluida en la app: Inter, con licencia SIL Open Font License 1.1 (https://openfontlicense.org).
 
-- Carlito: © 2010-2013 tyPoland Lukasz Dziedzic, con el nombre reservado «Carlito». https://github.com/googlefonts/carlito
-- Caladea: © 2012 Carolina Giovagnoli, Andres Torresi, Huerta Tipografia y The Caladea Project Authors. https://github.com/huertatipografica/Caladea
+Inter: © 2016-2023 The Inter Project Authors (https://github.com/rsms/inter).
 
 Los archivos .woff tienen los mismos dibujos de letras que los originales, empaquetados para la web.
 
