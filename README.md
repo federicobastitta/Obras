@@ -14,7 +14,9 @@ Se instala en el celular (PWA) y cada persona entra con su link personal, sin co
 - El propietario o el arquitecto aprueban o rechazan el presupuesto (el rechazo pide motivo).
 - El constructor marca la tarea como realizada; el propietario o el arquitecto la verifican o la devuelven con el motivo.
 - Fotos de antes y después, comentarios, pagos y un historial de quién hizo qué y cuándo.
-- Varias obras: quien dirige una obra puede crear otra desde la pestaña Obras y pasar de una a otra.
+- Inicio: todas las obras de la persona, cada una con su tipo (vivienda, clínica, local…), avance, lo que espera su
+  respuesta, plazos vencidos y saldo. Desde ahí se crean obras nuevas y se entra a cada una.
+- Quien llega sin link ve una página que explica la app, pensada para un arquitecto.
 - Resumen: avance, tareas con plazo vencido y plata presupuestada, aprobada, pagada y saldo por lugar.
 
 Estados de una tarea: sin presupuesto → presupuesto a aprobar → aprobada → realizada → terminada (o devuelta).

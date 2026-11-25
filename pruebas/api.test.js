@@ -161,6 +161,14 @@ test('obras nuevas: las crea quien dirige, y arrancan vacías y separadas', asyn
   assert.equal(yo.persona.nombre, 'Dueña');
   assert.equal(yo.persona.rol, 'propietario');
   assert.equal((await pedir(alta.datos.token, 'GET', '/api/tareas')).datos.tareas.length, 0);
+  // Tipo de obra: se elige al crear y se puede cambiar; un tipo inventado queda vacío.
+  const local = await pedir(duena, 'POST', '/api/obras', { nombre: 'Local', tipo: 'Local comercial' });
+  assert.equal((await pedir(local.datos.token, 'GET', '/api/yo')).datos.obra.tipo, 'Local comercial');
+  assert.equal((await pedir(constructor, 'PATCH', '/api/obra', { tipo: 'Oficina' })).codigo, 403);
+  assert.equal((await pedir(local.datos.token, 'PATCH', '/api/obra', { nombre: 'Local Lanús', tipo: 'Oficina' })).codigo, 200);
+  assert.deepEqual((await pedir(local.datos.token, 'GET', '/api/yo')).datos.obra, { id: yo.obra.id + 1, nombre: 'Local Lanús', tipo: 'Oficina' });
+  assert.equal((await pedir(local.datos.token, 'PATCH', '/api/obra', { tipo: 'Castillo' })).datos.obra.tipo, '');
+  assert.equal((await pedir(duena, 'GET', '/api/yo')).datos.obra.nombre, 'Casa de prueba', 'no toca otras obras');
   assert.equal((await pedir(alta.datos.token, 'GET', '/api/tareas/' + tareaId)).codigo, 404);
   assert.ok((await pedir(duena, 'GET', '/api/tareas')).datos.tareas.length >= 1);
 });

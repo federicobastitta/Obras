@@ -159,3 +159,14 @@ main.inicio { gap: 30px; padding-top: 26px; }
 .pasos li { padding-left: 4px; }
 .pasos li strong { display: block; }
 .pasos li span { color: var(--muted); font-size: 0.95rem; }
+
+/* Inicio: tarjetas de obras */
+.lista.obras li.obra { display: grid; }
+.lista.obras .renglon { gap: 8px; }
+progress { width: 100%; height: 8px; accent-color: var(--ok); appearance: none; -webkit-appearance: none; border: 0; border-radius: 999px; overflow: hidden; background: var(--line); }
+progress::-webkit-progress-bar { background: var(--line); }
+progress::-webkit-progress-value { background: var(--ok); }
+progress::-moz-progress-bar { background: var(--ok); }
+.pie-obra { padding: 0 14px 12px; }
+.lista.obras form.rejilla { padding: 0 14px 14px; }
+.rejilla p.ancho { grid-column: 1 / -1; }

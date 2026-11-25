@@ -8,6 +8,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS obras (
   id INTEGER PRIMARY KEY,
   nombre TEXT NOT NULL,
+  tipo TEXT NOT NULL DEFAULT '',
   creada TEXT NOT NULL
 );
 
@@ -96,16 +97,21 @@ CREATE INDEX IF NOT EXISTS pagos_tarea ON pagos(tarea_id);
 export function abrirBase(ruta) {
   const db = new DatabaseSync(ruta);
   db.exec(ESQUEMA);
+  // Bases creadas antes de que las obras tuvieran tipo.
+  if (!db.prepare('PRAGMA table_info(obras)').all().some((c) => c.name === 'tipo')) {
+    db.exec("ALTER TABLE obras ADD COLUMN tipo TEXT NOT NULL DEFAULT ''");
+  }
   return db;
 }
 
+export const TIPOS_DE_OBRA = ['Vivienda', 'Clínica o consultorio', 'Local comercial', 'Oficina', 'Edificio', 'Industria o depósito', 'Espacio exterior', 'Otra'];
 export const ahora = () => new Date().toISOString();
 export const nuevoToken = () => randomBytes(24).toString('hex');
 
 /** Crea una obra con su primera persona (propietario) y, si se pasan, sus tareas. Devuelve el token del propietario. */
-export function crearObra(db, { nombre, propietario, tareas = [] }) {
+export function crearObra(db, { nombre, propietario, tipo = '', tareas = [] }) {
   const t = ahora();
-  const obraId = db.prepare('INSERT INTO obras (nombre, creada) VALUES (?, ?)').run(nombre, t).lastInsertRowid;
+  const obraId = db.prepare('INSERT INTO obras (nombre, tipo, creada) VALUES (?, ?, ?)').run(nombre, tipo, t).lastInsertRowid;
   const token = nuevoToken();
   const personaId = db
     .prepare("INSERT INTO personas (obra_id, nombre, rol, token, creada) VALUES (?, ?, 'propietario', ?, ?)")

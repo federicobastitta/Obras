@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { abrirBase, ahora, nuevoToken } from './db.js';
+import { abrirBase, ahora, nuevoToken, TIPOS_DE_OBRA } from './db.js';
 
 const TIPOS = {
   '.html': 'text/html; charset=utf-8',
@@ -87,7 +87,7 @@ export function crearApp({ dirDatos, dirWeb }) {
   const dirFotos = path.join(dirDatos, 'fotos');
 
   const q = {
-    persona: db.prepare('SELECT p.*, o.nombre AS obra_nombre FROM personas p JOIN obras o ON o.id = p.obra_id WHERE p.token = ? AND p.activa = 1'),
+    persona: db.prepare('SELECT p.*, o.nombre AS obra_nombre, o.tipo AS obra_tipo FROM personas p JOIN obras o ON o.id = p.obra_id WHERE p.token = ? AND p.activa = 1'),
     tareas: db.prepare(`SELECT t.*,
         (SELECT COUNT(*) FROM fotos f WHERE f.tarea_id = t.id) AS fotos,
         (SELECT COUNT(*) FROM eventos e WHERE e.tarea_id = t.id AND e.tipo = 'comentario') AS comentarios,
@@ -225,7 +225,7 @@ export function crearApp({ dirDatos, dirWeb }) {
     if (a === 'yo' && m === 'GET') {
       return responder(200, {
         persona: { id: p.id, nombre: p.nombre, rol: p.rol },
-        obra: { id: p.obra_id, nombre: p.obra_nombre },
+        obra: { id: p.obra_id, nombre: p.obra_nombre, tipo: p.obra_tipo },
       });
     }
 
@@ -234,11 +234,21 @@ export function crearApp({ dirDatos, dirWeb }) {
       soloDireccion(p);
       const c = await leerJson(req);
       const nombre = texto(c.nombre, 80, { requerido: true, nombre: 'El nombre de la obra' });
+      const tipo = TIPOS_DE_OBRA.includes(c.tipo) ? c.tipo : '';
       const t = ahora();
-      const obraId = db.prepare('INSERT INTO obras (nombre, creada) VALUES (?, ?)').run(nombre, t).lastInsertRowid;
+      const obraId = db.prepare('INSERT INTO obras (nombre, tipo, creada) VALUES (?, ?, ?)').run(nombre, tipo, t).lastInsertRowid;
       const tk = nuevoToken();
       db.prepare('INSERT INTO personas (obra_id, nombre, rol, token, creada) VALUES (?, ?, ?, ?, ?)').run(obraId, p.nombre, p.rol, tk, t);
-      return responder(201, { token: tk, obra: { id: Number(obraId), nombre } });
+      return responder(201, { token: tk, obra: { id: Number(obraId), nombre, tipo } });
+    }
+
+    if (a === 'obra' && !id && m === 'PATCH') {
+      soloDireccion(p);
+      const c = await leerJson(req);
+      const nombre = texto(c.nombre ?? p.obra_nombre, 80, { requerido: true, nombre: 'El nombre de la obra' });
+      const tipo = c.tipo === undefined ? p.obra_tipo : TIPOS_DE_OBRA.includes(c.tipo) ? c.tipo : '';
+      db.prepare('UPDATE obras SET nombre = ?, tipo = ? WHERE id = ?').run(nombre, tipo, p.obra_id);
+      return responder(200, { obra: { id: p.obra_id, nombre, tipo } });
     }
 
     if (a === 'tareas' && !id) {

@@ -32,6 +32,7 @@ function estadoPresupuesto(t) {
   return t.estado === 'pendiente' ? 'rechazado' : 'aprobado';
 }
 const chipPresupuesto = (estado) => h('span', { class: 'chip ' + ESTADOS_PRESUPUESTO[estado][1] }, ESTADOS_PRESUPUESTO[estado][0]);
+const TIPOS_DE_OBRA = ['Vivienda', 'Clínica o consultorio', 'Local comercial', 'Oficina', 'Edificio', 'Industria o depósito', 'Espacio exterior', 'Otra'];
 const ROLES = { propietario: 'Propietario', arquitecto: 'Arquitecto', constructor: 'Constructor' };
 const EVENTOS = {
   creada: 'cargó la tarea',
@@ -86,10 +87,12 @@ const esDireccion = () => yo.rol === 'propietario' || yo.rol === 'arquitecto';
 const esConstructor = () => yo.rol === 'constructor';
 const terminada = (t) => t.estado === 'verificada';
 const vencida = (t) => t.plazo && t.plazo < hoy() && !['realizada', 'verificada'].includes(t.estado);
-function meToca(t) {
-  if (esConstructor()) return ['pendiente', 'aprobada', 'devuelta'].includes(t.estado);
+/** Si la tarea espera una respuesta de alguien con ese rol. */
+function leToca(t, rol) {
+  if (rol === 'constructor') return ['pendiente', 'aprobada', 'devuelta'].includes(t.estado);
   return ['presupuestada', 'realizada'].includes(t.estado);
 }
+const meToca = (t) => leToca(t, yo.rol);
 
 let relojAviso;
 function avisar(texto, error = false) {
@@ -253,14 +256,14 @@ function guardarAccesos(lista) {
 }
 function recordarAcceso() {
   const lista = accesos().filter((x) => x.token !== token);
-  lista.push({ token, obra: obra.nombre, persona: yo.nombre, rol: yo.rol });
+  lista.push({ token, obra: obra.nombre, tipo: obra.tipo || '', persona: yo.nombre, rol: yo.rol });
   guardarAccesos(lista);
 }
-function cambiarDeObra(k) {
+function cambiarDeObra(k, destino = '') {
   guardarToken(k);
   yo = null;
   filtro = null;
-  if (location.hash && location.hash !== '#/') history.replaceState(null, '', location.pathname);
+  history.replaceState(null, '', location.pathname + (destino ? '#/' + destino : ''));
   arrancar();
 }
 
@@ -272,15 +275,15 @@ function marco(actual, ...contenido) {
   app.replaceChildren(
     h('header', { class: 'barra' },
       h('div', { class: 'fila' },
-        h('h1', null, obra.nombre),
+        h('h1', null, actual === '' ? 'Construir' : obra.nombre),
         h('span', { class: 'quien' }, `${yo.nombre} · ${ROLES[yo.rol]}`),
       ),
       h('nav', { class: 'pestanas' },
-        pestana('', 'Tareas'),
+        pestana('', 'Inicio'),
+        pestana('tareas', 'Tareas'),
         pestana('presupuestos', 'Presupuestos'),
         pestana('resumen', 'Resumen'),
         esDireccion() ? pestana('personas', 'Personas') : null,
-        pestana('obras', 'Obras'),
       ),
     ),
     h('main', null, ...contenido),
@@ -377,7 +380,7 @@ async function vistaLista() {
         ),
       ))));
   }
-  marco('', alta, filtros, ...cuerpo);
+  marco('tareas', alta, filtros, ...cuerpo);
 }
 
 // ---------- detalle ----------
@@ -511,7 +514,7 @@ async function vistaTarea(id) {
     prioridad.value = t.prioridad;
     const confirmar = h('div', { class: 'fila', hidden: true },
       h('span', { class: 'sub' }, 'Se borra la tarea con sus fotos, pagos e historial.'),
-      h('button', { class: 'peligro', type: 'button', onclick: async (e) => { if (await hacer(e.currentTarget, () => api('DELETE', '/tareas/' + id), 'Tarea borrada.')) location.hash = '#/'; } }, 'Sí, borrar'),
+      h('button', { class: 'peligro', type: 'button', onclick: async (e) => { if (await hacer(e.currentTarget, () => api('DELETE', '/tareas/' + id), 'Tarea borrada.')) location.hash = '#/tareas'; } }, 'Sí, borrar'),
       h('button', { type: 'button', onclick: () => { confirmar.hidden = true; } }, 'No'));
     edicion = h('details', { class: 'caja' },
       h('summary', { class: 'titulo' }, 'Editar o borrar la tarea'),
@@ -531,8 +534,8 @@ async function vistaTarea(id) {
       confirmar);
   }
 
-  marco('',
-    h('a', { href: '#/' }, '← Volver a las tareas'),
+  marco('tareas',
+    h('a', { href: '#/tareas' }, '← Volver a las tareas'),
     h('section', { class: 'detalle caja' },
       h('p', { class: 'sub' }, t.lugar || 'Sin lugar'),
       h('h2', { class: 'tarea' }, t.texto),
@@ -891,46 +894,134 @@ async function abrirPresupuesto(ref, alCambiar) {
   if (await pintar()) document.body.append(fondo);
 }
 
-// ---------- obras ----------
-function vistaObras() {
+// ---------- inicio: todas las obras ----------
+/** Pide datos con el link de otra obra, sin tocar la sesión actual. */
+async function leerCon(k, ruta) {
+  const r = await fetch('/api' + ruta, { headers: { Authorization: 'Bearer ' + k } });
+  if (!r.ok) throw new Error('sin acceso');
+  return r.json();
+}
+function selectorDeTipo(id, actual = '') {
+  const sel = h('select', { id }, h('option', { value: '' }, 'Sin definir'), TIPOS_DE_OBRA.map((t) => h('option', { value: t }, t)));
+  sel.value = actual;
+  return sel;
+}
+
+async function vistaInicio() {
   const lista = accesos();
-  const nombre = h('input', { id: 'o-nombre', type: 'text', maxlength: 80, required: true, placeholder: 'Quincho, local, casa de fin de semana…' });
-  const link = h('input', { id: 'o-link', type: 'text', autocomplete: 'off', placeholder: 'Pegá acá el link que te pasaron' });
-  marco('obras',
-    h('section', { class: 'caja' },
-      h('h2', null, 'Tus obras en este celular'),
-      h('ul', { class: 'historial' }, lista.map((x) =>
-        h('li', null,
-          h('span', { class: 'fila entre' },
-            h('span', null, h('strong', null, x.obra), ` · ${ROLES[x.rol] || ''}`, x.token === token ? ' (abierta)' : ''),
-            x.token !== token ? h('button', { class: 'chico', type: 'button', onclick: () => cambiarDeObra(x.token) }, 'Abrir') : null)))),
-      lista.length < 2 ? h('p', { class: 'sub' }, 'Cuando tengas más de una obra, desde acá pasás de una a otra.') : null),
-    esDireccion() ? h('form', {
-      class: 'caja',
+  const fichas = await Promise.all(lista.map(async (x) => {
+    try {
+      const [quien, datos] = await Promise.all([leerCon(x.token, '/yo'), leerCon(x.token, '/tareas')]);
+      const ts = datos.tareas;
+      const rol = quien.persona.rol;
+      const saldos = {};
+      const sumar = (moneda, aprobado, pagado) => { if (aprobado || pagado) saldos[moneda] = (saldos[moneda] || 0) + aprobado - pagado; };
+      for (const t of ts) if (!t.grupo_id) sumar(t.moneda, ['aprobada', 'realizada', 'verificada', 'devuelta'].includes(t.estado) ? t.monto || 0 : 0, t.pagado);
+      for (const g of datos.grupos || []) sumar(g.moneda, g.estado === 'aprobado' ? g.monto : 0, g.pagado);
+      return {
+        token: x.token, obra: quien.obra, rol, total: ts.length,
+        hechas: ts.filter(terminada).length,
+        tocan: ts.filter((t) => leToca(t, rol)).length,
+        vencidas: ts.filter(vencida).length,
+        saldos,
+      };
+    } catch {
+      return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, rol: x.rol, error: true };
+    }
+  }));
+  // Refresca los nombres y tipos guardados en el celular.
+  guardarAccesos(lista.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '' } : x; }));
+  fichas.sort((a, b) => (b.tocan || 0) - (a.tocan || 0) || (b.vencidas || 0) - (a.vencidas || 0));
+
+  const bien = fichas.filter((f) => !f.error);
+  const suma = (campo) => bien.reduce((n, f) => n + f[campo], 0);
+  const abiertas = suma('total') - suma('hechas');
+  const resumen = h('section', { class: 'caja' },
+    h('h2', null, bien.length === 1 ? 'Tu obra' : `Tus ${bien.length} obras`),
+    h('div', { class: 'cifras' },
+      h('div', null, h('strong', { class: 'grande' }, suma('tocan')), h('span', { class: 'sub' }, 'Esperan tu respuesta')),
+      h('div', null, h('strong', { class: 'grande' + (suma('vencidas') ? ' vencida' : '') }, suma('vencidas')), h('span', { class: 'sub' }, 'Con plazo vencido')),
+      h('div', null, h('strong', { class: 'grande' }, abiertas), h('span', { class: 'sub' }, 'Tareas abiertas'))));
+
+  const tarjetas = fichas.map((f) => {
+    const dirige = f.rol === 'propietario' || f.rol === 'arquitecto';
+    const pie = [];
+    if (f.error) pie.push(h('span', { class: 'chip mal' }, 'No se pudo leer'));
+    else {
+      if (f.tocan) pie.push(h('span', { class: 'chip info' }, `${f.tocan} ${f.tocan === 1 ? 'espera' : 'esperan'} tu respuesta`));
+      if (f.vencidas) pie.push(h('span', { class: 'chip mal' }, `${f.vencidas} con plazo vencido`));
+      for (const [moneda, saldo] of Object.entries(f.saldos)) if (saldo) pie.push(h('span', null, `Saldo ${plata(saldo, moneda)}`));
+    }
+    const avance = f.total ? Math.round((f.hechas / f.total) * 100) : 0;
+    const idBase = 'ob-' + f.token.slice(0, 8);
+    const nombre = h('input', { id: idBase + '-n', type: 'text', maxlength: 80, required: true, value: f.obra.nombre });
+    const tipo = selectorDeTipo(idBase + '-t', f.obra.tipo || '');
+    const editor = h('form', {
+      class: 'rejilla', hidden: true,
       onsubmit: async (e) => {
         e.preventDefault();
-        let nueva;
-        const ok = await hacer(e.submitter, async () => { nueva = await api('POST', '/obras', { nombre: nombre.value }); }, 'Obra creada.');
-        if (ok) cambiarDeObra(nueva.token);
+        const ok = await hacer(e.submitter, async () => {
+          const r = await fetch('/api/obra', { method: 'PATCH', headers: { Authorization: 'Bearer ' + f.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nombre.value, tipo: tipo.value }) });
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'No se pudo guardar.');
+          if (f.token === token) obra = (await r.json()).obra;
+        }, 'Obra actualizada.');
+        if (ok) vistaInicio();
       },
     },
-      h('h2', null, 'Nueva obra'),
-      h('p', { class: 'sub' }, `Arranca vacía y entrás como ${ROLES[yo.rol].toLowerCase()}. Después sumás a las personas desde la pestaña Personas.`),
-      h('label', { for: 'o-nombre' }, 'Nombre de la obra', nombre),
-      h('button', { class: 'principal', type: 'submit' }, 'Crear obra')) : null,
-    h('form', {
-      class: 'caja',
-      onsubmit: (e) => {
-        e.preventDefault();
-        const v = link.value.trim();
-        const k = (v.match(/k=([0-9a-f]{20,})/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
-        if (!k) return avisar('Ese link no tiene un código de acceso.', true);
-        cambiarDeObra(k);
+      h('label', { for: idBase + '-n' }, 'Nombre de la obra', nombre),
+      h('label', { for: idBase + '-t' }, 'Tipo de obra', tipo),
+      h('button', { class: 'principal', type: 'submit' }, 'Guardar'),
+      h('button', { type: 'button', onclick: () => { editor.hidden = true; } }, 'Cancelar'));
+    return h('li', { class: 'obra' },
+      h('button', { class: 'renglon', type: 'button', onclick: () => cambiarDeObra(f.token, 'tareas') },
+        h('span', { class: 'fila entre' },
+          h('strong', { class: 'texto' }, f.obra.nombre),
+          h('span', { class: 'chip' }, f.obra.tipo || 'Tipo sin definir')),
+        f.error ? null : h('progress', { max: 100, value: avance, 'aria-label': `Avance de ${f.obra.nombre}` }),
+        f.error ? null : h('span', { class: 'sub' }, f.total ? `${avance}% · ${f.hechas} de ${f.total} tareas terminadas` : 'Todavía sin tareas'),
+        h('span', { class: 'datos' }, pie, h('span', null, ROLES[f.rol] || ''))),
+      dirige && !f.error ? h('div', { class: 'fila pie-obra' }, h('button', { class: 'chico', type: 'button', onclick: () => { editor.hidden = !editor.hidden; } }, 'Cambiar nombre o tipo')) : null,
+      dirige && !f.error ? editor : null);
+  });
+
+  const nuevoNombre = h('input', { id: 'o-nombre', type: 'text', maxlength: 80, required: true, placeholder: 'Quincho, local de Lanús, casa de fin de semana…' });
+  const nuevoTipo = selectorDeTipo('o-tipo');
+  const link = h('input', { id: 'o-link', type: 'text', autocomplete: 'off', placeholder: 'Pegá acá el link que te pasaron' });
+  marco('',
+    resumen,
+    esDireccion() ? h('details', { class: 'caja' },
+      h('summary', { class: 'titulo' }, 'Nueva obra'),
+      h('form', {
+        class: 'rejilla',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          let nueva;
+          const ok = await hacer(e.submitter, async () => { nueva = await api('POST', '/obras', { nombre: nuevoNombre.value, tipo: nuevoTipo.value }); }, 'Obra creada.');
+          if (ok) cambiarDeObra(nueva.token, 'tareas');
+        },
       },
-    },
-      h('h2', null, 'Sumar una obra con un link'),
-      h('label', { for: 'o-link' }, 'Link de acceso', link),
-      h('button', { type: 'submit' }, 'Entrar a esa obra')),
+        h('p', { class: 'sub ancho' }, `Arranca vacía y entrás como ${ROLES[yo.rol].toLowerCase()}. Después sumás a las personas desde la pestaña Personas.`),
+        h('label', { for: 'o-nombre' }, 'Nombre de la obra', nuevoNombre),
+        h('label', { for: 'o-tipo' }, 'Tipo de obra', nuevoTipo),
+        h('button', { class: 'principal ancho', type: 'submit' }, 'Crear obra'))) : null,
+    h('h2', { class: 'grupo' }, 'Obras', h('small', null, 'Tocá una para entrar')),
+    h('ul', { class: 'lista obras' }, tarjetas),
+    h('details', { class: 'caja' },
+      h('summary', { class: 'titulo' }, 'Sumar una obra con un link'),
+      h('form', {
+        class: 'rejilla',
+        onsubmit: (e) => {
+          e.preventDefault();
+          const v = link.value.trim();
+          const k = (v.match(/k=([0-9a-f]{20,}(?:,[0-9a-f]{20,})*)/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
+          if (!k) return avisar('Ese link no tiene un código de acceso.', true);
+          history.replaceState(null, '', location.pathname + '#k=' + k);
+          yo = null;
+          arrancar();
+        },
+      },
+        h('label', { class: 'ancho', for: 'o-link' }, 'Link de acceso', link),
+        h('button', { class: 'ancho', type: 'submit' }, 'Entrar a esa obra'))),
   );
 }
 
@@ -943,8 +1034,8 @@ async function mostrar() {
     else if (ruta === 'presupuestos') await vistaPresupuestos();
     else if (ruta === 'resumen') await vistaResumen();
     else if (ruta === 'personas') await vistaPersonas();
-    else if (ruta === 'obras') vistaObras();
-    else await vistaLista();
+    else if (ruta === 'tareas') await vistaLista();
+    else await vistaInicio();
     window.scrollTo(0, 0);
   } catch (e) {
     if (!token) return;
