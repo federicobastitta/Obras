@@ -124,6 +124,41 @@ function h(etiqueta, attrs, ...hijos) {
   }
   return n;
 }
+// Íconos de línea (trazo de 1,75 px, 24 px de grilla).
+const ICONOS = {
+  casa: ['M3 10.5L12 3l9 7.5', 'M5 9v11h14V9', 'M10 20v-5h4v5'],
+  mas: ['M12 5v14', 'M5 12h14'],
+  usuariomas: ['M15 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 3 18.5V20', 'M9 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7', 'M19 8v6', 'M22 11h-6'],
+  enlace: ['M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 5', 'M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 19'],
+  flask: ['M9 3h6', 'M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2h12.4a1.5 1.5 0 0 0 1.3-2L14 9V3', 'M7.5 15h9'],
+  papelera: ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
+  check: ['M5 12.5l4.5 4.5L19 7.5'],
+  billete: ['M3 6h18v12H3z', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6'],
+  ojo: ['M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z', 'M12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5'],
+  carpeta: ['M3 7.5A1.5 1.5 0 0 1 4.5 6h4.2l2 2.5h8.8A1.5 1.5 0 0 1 21 10v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z'],
+  camara: ['M4 8h3l1.5-2.5h7L17 8h3v11H4z', 'M12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7'],
+  reloj: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18', 'M12 7.5V12l3 2'],
+  clip: ['M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.2 3.2 0 0 1 4.5 4.5L9.5 17a1.4 1.4 0 0 1-2-2L15 7.5'],
+  chat: ['M20 12a8 8 0 0 1-11.5 7.2L4 20.5l1.3-4A8 8 0 1 1 20 12z'],
+  lista: ['M9 4h6v3H9z', 'M7 5.5H5.5V20h13V5.5H17', 'M9 12h6', 'M9 16h4'],
+  grafico: ['M5 20V10', 'M12 20V4', 'M19 20v-7'],
+  atras: ['M15 5l-7 7 7 7'],
+};
+function ico(nombre) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'ico');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const d of ICONOS[nombre] || []) {
+    const trazo = document.createElementNS(NS, 'path');
+    trazo.setAttribute('d', d);
+    svg.append(trazo);
+  }
+  return svg;
+}
+const iniciales = (nombre) => nombre.replace(/\(.*?\)/g, '').trim().split(/\s+/).slice(0, 2).map((x) => x[0] || '').join('').toUpperCase();
+
 /** Como Node.append / replaceChildren pero ignorando null y false (los nativos escriben la palabra «null»). */
 const anexar = (padre, ...hijos) => { for (const x of hijos.flat()) if (x != null && x !== false) padre.append(x); };
 const reemplazar = (padre, ...hijos) => { padre.replaceChildren(); anexar(padre, ...hijos); };
@@ -249,28 +284,32 @@ function pantallaIngreso(mensaje) {
     h('label', { for: 'codigo' }, 'Link de acceso', campo),
     h('button', { class: 'principal', type: 'submit' }, 'Entrar'));
 
-  const funcion = (titulo, texto) => h('article', { class: 'funcion' }, h('h3', null, titulo), h('p', null, texto));
+  const funcion = (icono, titulo, texto) => h('article', { class: 'funcion' }, h('span', { class: 'icono' }, ico(icono)), h('h3', null, titulo), h('p', null, texto));
   const paso = (titulo, texto) => h('li', null, h('strong', null, titulo), h('span', null, texto));
   const etapa = (clase, nombre, quien) => h('li', null, h('span', { class: 'chip ' + clase }, nombre), h('span', { class: 'sub' }, quien));
+  const irAEntrar = (e) => { e.preventDefault(); entrar.scrollIntoView({ behavior: 'smooth' }); campo.focus({ preventScroll: true }); };
 
   app.replaceChildren(
     h('header', { class: 'portada' },
+      h('div', { class: 'arriba' },
+        h('span', { class: 'logo' }, h('span', { class: 'marca-logo' }, ico('casa')), 'Construir'),
+        h('a', { class: 'boton', href: '#entrar', onclick: irAEntrar }, 'Entrar')),
       h('div', { class: 'ancho-pagina' },
-        h('p', { class: 'marca' }, 'Construir'),
         h('h1', null, 'Los pendientes de tu obra, con precio, fecha y responsable.'),
         h('p', { class: 'bajada' }, 'Cargás lo que falta hacer, el constructor lo presupuesta y le pone fecha de entrega, y vos aprobás y verificás desde el celular. Todo queda escrito: nadie discute qué se pidió ni cuánto se acordó.'),
-        h('a', { class: 'boton claro', href: '#entrar', onclick: (e) => { e.preventDefault(); entrar.scrollIntoView({ behavior: 'smooth' }); campo.focus({ preventScroll: true }); } }, 'Ya tengo mi link de acceso'))),
+        h('div', { class: 'fila' },
+          h('a', { class: 'boton principal', href: '#entrar', onclick: irAEntrar }, 'Ya tengo mi link de acceso')))),
     h('main', { class: 'inicio' },
       mensaje ? entrar : null,
       h('section', null,
         h('h2', null, 'Qué hacés como arquitecto'),
         h('div', { class: 'funciones' },
-          funcion('Cargás los pendientes', 'Tarea por tarea, ordenadas por ambiente (cocina, baños, galería…) y con prioridad. Les sumás fotos para mostrar exactamente qué hay que hacer.'),
-          funcion('Recibís el presupuesto', 'El constructor cotiza cada tarea, o junta varias y les pone un solo precio. Siempre con fecha de entrega y una nota de qué incluye.'),
-          funcion('Aprobás o rechazás', 'Con un toque. Si rechazás, queda escrito el motivo y el constructor puede volver a cotizar.'),
-          funcion('Verificás el trabajo', 'Cuando el constructor marca una tarea como realizada, la revisás: la das por terminada o la devolvés con el motivo.'),
-          funcion('Controlás la plata', 'Registrás anticipos y pagos. El resumen muestra presupuestado, aprobado, pagado y saldo, por ambiente y en total, en pesos o dólares.'),
-          funcion('Llevás varias obras', 'Cada obra tiene sus tareas, su gente y sus números por separado. Pasás de una a otra desde la misma app.'))),
+          funcion('lista', 'Cargás los pendientes', 'Tarea por tarea, ordenadas por ambiente y con prioridad. Les sumás fotos para mostrar qué hay que hacer.'),
+          funcion('billete', 'Recibís el presupuesto', 'El constructor cotiza cada tarea, o junta varias con un solo precio. Siempre con fecha de entrega y una nota de qué incluye.'),
+          funcion('check', 'Aprobás o rechazás', 'Con un toque. Si rechazás, queda escrito el motivo y el constructor puede volver a cotizar.'),
+          funcion('ojo', 'Verificás el trabajo', 'Cuando el constructor marca una tarea como realizada, la revisás: la das por terminada o la devolvés con el motivo.'),
+          funcion('grafico', 'Controlás la plata', 'Registrás anticipos y pagos. El resumen muestra presupuestado, aprobado, pagado y saldo, por ambiente y en total.'),
+          funcion('carpeta', 'Llevás varias obras', 'Cada obra tiene sus tareas, su gente y sus números por separado. Pasás de una a otra desde la misma app.'))),
       h('section', null,
         h('h2', null, 'El recorrido de cada tarea'),
         h('p', { class: 'sub' }, 'En todo momento se ve en qué etapa está cada pendiente y a quién le toca moverlo.'),
@@ -283,10 +322,10 @@ function pantallaIngreso(mensaje) {
       h('section', null,
         h('h2', null, 'Lo que queda registrado'),
         h('div', { class: 'funciones' },
-          funcion('Fotos de antes y después', 'Las sube cualquiera desde el celular, en la tarea que corresponde.'),
-          funcion('Comentarios', 'Las preguntas y aclaraciones quedan en la tarea, no perdidas en un chat.'),
-          funcion('Historial', 'Quién cargó, cotizó, aprobó, pagó o devolvió cada cosa, con fecha y hora.'),
-          funcion('Plazos vencidos', 'Las tareas que pasaron su fecha de entrega se marcan en rojo.'))),
+          funcion('camara', 'Fotos de antes y después', 'Las sube cualquiera desde el celular, en la tarea que corresponde.'),
+          funcion('clip', 'Archivos y planos', 'PDF, planos, planillas y otros documentos, junto a la tarea a la que pertenecen.'),
+          funcion('chat', 'Comentarios', 'Las preguntas y aclaraciones quedan en la tarea, no perdidas en un chat.'),
+          funcion('reloj', 'Historial', 'Quién cargó, cotizó, aprobó, pagó o devolvió cada cosa, con fecha y hora.'))),
       h('section', null,
         h('h2', null, 'Cómo se empieza'),
         h('ol', { class: 'pasos' },
@@ -334,10 +373,15 @@ function marco(actual, ...contenido) {
   const pestana = (ruta, texto) => h('a', { href: '#/' + ruta, 'aria-current': actual === ruta ? 'page' : null }, texto);
   app.replaceChildren(
     h('header', { class: 'barra' },
-      h('div', { class: 'fila' },
-        h('h1', null, actual === '' ? 'Construir' : obra.nombre),
-        h('span', { class: 'quien' }, `${yo.nombre} · ${rotulo(yo)}`),
-      ),
+      h('div', { class: 'arriba' },
+        h('a', { class: 'logo', href: '#/' }, h('span', { class: 'marca-logo' }, ico('casa')), 'Construir'),
+        h('div', { class: 'persona' },
+          h('span', { class: 'avatar', 'aria-hidden': 'true' }, iniciales(yo.nombre)),
+          h('span', { class: 'quien' }, h('strong', null, yo.nombre), h('span', null, rotulo(yo))))),
+      actual === '' ? null : h('div', { class: 'contexto' },
+        h('h1', null, obra.nombre),
+        obra.tipo ? h('span', { class: 'chip' }, obra.tipo) : null,
+        obra.demo ? h('span', { class: 'chip pend' }, 'Demo') : null),
       h('nav', { class: 'pestanas' },
         pestana('', 'Inicio'),
         pestana('tareas', 'Tareas'),
@@ -693,7 +737,7 @@ async function vistaTarea(id) {
   }
 
   marco('tareas',
-    h('a', { href: '#/tareas' }, '← Volver a las tareas'),
+    h('a', { class: 'volver', href: '#/tareas' }, ico('atras'), 'Tareas'),
     h('section', { class: 'detalle caja' },
       h('p', { class: 'sub' }, t.lugar || 'Sin lugar'),
       h('h2', { class: 'tarea' }, t.texto),
@@ -765,18 +809,19 @@ async function vistaResumen() {
       if (!filas.has(r.donde)) filas.set(r.donde, []);
       filas.get(r.donde).push(r);
     }
+    // «data-et» es el rótulo de cada número cuando la tabla se apila en pantallas muy angostas.
     const fila = (nombre, lista, etiqueta = 'td') =>
       h('tr', null,
         h(etiqueta === 'th' ? 'th' : 'td', null, nombre),
-        h(etiqueta, null, numero.format(suma(lista, 'monto'))),
-        h(etiqueta, null, numero.format(suma(lista, 'aprobado'))),
-        h(etiqueta, null, numero.format(suma(lista, 'pagado'))),
-        h(etiqueta, null, numero.format(suma(lista, 'aprobado') - suma(lista, 'pagado'))));
+        h(etiqueta, { 'data-et': 'Presup.' }, numero.format(suma(lista, 'monto'))),
+        h(etiqueta, { 'data-et': 'Aprob.' }, numero.format(suma(lista, 'aprobado'))),
+        h(etiqueta, { 'data-et': 'Pagado' }, numero.format(suma(lista, 'pagado'))),
+        h(etiqueta, { 'data-et': 'Saldo' }, numero.format(suma(lista, 'aprobado') - suma(lista, 'pagado'))));
     cajas.push(h('section', { class: 'caja' },
       h('h2', null, moneda === 'USD' ? 'Plata en dólares' : 'Plata en pesos'),
       h('div', { class: 'tabla' },
         h('table', null,
-          h('thead', null, h('tr', null, ['Lugar o grupo', 'Presupuestado', 'Aprobado', 'Pagado', 'Saldo'].map((x) => h('th', null, x)))),
+          h('thead', null, h('tr', null, [['Lugar o grupo', 'Lugar'], ['Presupuestado', 'Presup.'], ['Aprobado', 'Aprob.'], ['Pagado', 'Pagado'], ['Saldo', 'Saldo']].map(([largo, corto]) => h('th', null, h('span', { class: 'largo' }, largo), h('span', { class: 'corto' }, corto))))),
           h('tbody', null, [...filas].map(([k, lista]) => fila(k, lista))),
           h('tfoot', null, fila('Total', con, 'th')))),
       h('p', { class: 'sub' }, 'Saldo = aprobado menos pagado.')));
@@ -1279,8 +1324,9 @@ async function vistaInicio() {
   }
 
   // ----- cuadros -----
+  const ICONO_ACCION = { 'Nueva obra': 'mas', 'Nuevo proveedor': 'usuariomas', 'Sumar proveedor con un link': 'enlace', 'Datos de demo': 'flask', 'Quitar la demo': 'papelera' };
   const accion = (titulo, detalle, alTocar) => h('button', { class: 'cuadro accion', type: 'button', onclick: alTocar },
-    h('span', { class: 'mas', 'aria-hidden': 'true' }, '+'), h('strong', null, titulo), h('span', { class: 'sub' }, detalle));
+    h('span', { class: 'mas', 'aria-hidden': 'true' }, ico(ICONO_ACCION[titulo] || 'mas')), h('strong', null, titulo), h('span', { class: 'sub' }, detalle));
   const dato = (valor, texto, clase) => h('div', { class: 'numero' + (clase && valor ? ' ' + clase : '') }, h('span', { class: 'cifra' }, valor), h('span', { class: 'sub' }, texto));
 
   const cuadrosDeObra = fichas.map((f) => {
@@ -1389,7 +1435,7 @@ async function vistaInicio() {
       dirigidas.length ? accion('Nueva obra', 'Vivienda, clínica, local…', nuevaObra) : null,
       dirigidas.length ? accion('Nuevo proveedor', 'Plomero, electricista… con su link', nuevoProveedor) : null,
       dirigidas.length ? (hayDemo ? accion('Quitar la demo', 'Borra las obras de ejemplo', quitarDemoUI) : accion('Datos de demo', 'Obras de ejemplo con todo cargado', cargarDemoUI)) : null,
-      accion('Sumar con un link', 'Una obra que te compartieron', sumarConLink)),
+      accion('Sumar proveedor con un link', 'Con el link que te pasaron', sumarConLink)),
     ...cajaAprobar,
     ...cajaVencimientos,
     h('h2', { class: 'grupo' }, fichas.length === 1 ? 'Tu obra' : 'Tus obras', h('small', null, 'Tocá una para abrirla')),
