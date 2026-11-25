@@ -423,13 +423,17 @@ test('quien pide entra desde Conectar o FC, ve solo sus pedidos; el equipo los h
     assert.equal((await p2(beto, 'GET', '/api/tareas/' + pedido.datos.id)).codigo, 404);
     assert.equal((await p2(sedes.tokens[0], 'GET', '/api/tareas')).datos.tareas.length, 1);
     // Quien pide no maneja la obra.
-    assert.equal((await p2(anaLomas, 'GET', '/api/personas')).codigo, 403);
+    assert.equal((await p2(anaLomas, 'POST', '/api/personas', { nombre: 'X', rol: 'constructor' })).codigo, 403);
     assert.equal((await p2(anaLomas, 'POST', '/api/obras', { nombre: 'X' })).codigo, 403);
 
     // Darío ve el pedido y marca que lo terminó; Ana lo ve terminado y lo puede dar por verificado.
     const dario = equipo.personas[0].tokens[0];
     const suyas = (await p2(dario, 'GET', '/api/tareas')).datos.tareas;
     assert.deepEqual(suyas.map((t) => t.texto), ['Pierde la canilla']);
+    // Quien pide ve a quién encargarle el arreglo (Darío y Alejandro), sin los links de nadie.
+    const ejecutan = (await p2(anaLomas, 'GET', '/api/personas')).datos.personas;
+    assert.ok(ejecutan.some((x) => x.nombre === 'Darío') && ejecutan.some((x) => x.nombre === 'Alejandro'));
+    assert.ok(ejecutan.every((x) => x.rol === 'constructor' && !('token' in x)));
     // Queda registrado quién lo pidió y desde dónde.
     assert.deepEqual([suyas[0].pedida_por, suyas[0].pedida_desde], ['Ana de Recepción', 'Conectar']);
     assert.equal((await p2(dario, 'POST', `/api/tareas/${pedido.datos.id}/accion`, { accion: 'realizada' })).codigo, 200);
