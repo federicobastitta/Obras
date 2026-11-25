@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crearApp } from '../servidor/app.js';
 import { crearObra } from '../servidor/db.js';
+import { asegurarDemo } from '../servidor/demo.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dirDatos = fs.mkdtempSync(path.join(os.tmpdir(), 'obras-'));
@@ -318,4 +319,25 @@ test('demostración: se carga con todo completo, no toca lo real y se borra ente
   const restos = fs.readdirSync(path.join(dirDatos, 'fotos')).concat(fs.readdirSync(path.join(dirDatos, 'archivos')));
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM fotos').get().n, restos.length - fs.readdirSync(path.join(dirDatos, 'archivos')).length, 'no quedan fotos sueltas');
   assert.equal((await pedir(duena, 'POST', '/api/demo')).codigo, 201, 'se puede volver a cargar');
+});
+
+test('demostración con arquitecto propio: le pone el nombre y da un link que abre las dos obras', async () => {
+  const op = { dirFotos: path.join(dirDatos, 'fotos'), dirArchivos: path.join(dirDatos, 'archivos'), propietario: 'Dueña', urlBase: 'https://ejemplo.test/' };
+  const links = asegurarDemo(db, { ...op, arquitecto: 'Nazareno' });
+  const tokens = links.arquitecto.replace('https://ejemplo.test/#k=', '').split(',');
+  assert.equal(tokens.length, 2);
+  for (const [i, nombre] of ['Casa Los Álamos', 'Clínica Norte'].entries()) {
+    const yo = (await pedir(tokens[i], 'GET', '/api/yo')).datos;
+    assert.deepEqual([yo.persona.nombre, yo.persona.rol, yo.obra.nombre, yo.obra.demo], ['Nazareno', 'arquitecto', nombre, true]);
+  }
+  // Como arquitecto ve todo y puede aprobar.
+  const d = (await pedir(tokens[0], 'GET', '/api/tareas')).datos;
+  assert.ok(d.tareas.length >= 20);
+  const aAprobar = d.tareas.find((t) => !t.grupo_id && t.estado === 'presupuestada');
+  assert.equal((await pedir(tokens[0], 'POST', `/api/tareas/${aAprobar.id}/accion`, { accion: 'aprobar' })).codigo, 200);
+  assert.equal(links.propietario.split(',').length, 2);
+  // Repetirlo no duplica nada y mantiene los mismos links.
+  const antes = db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n;
+  assert.deepEqual(asegurarDemo(db, { ...op, arquitecto: 'Nazareno' }), links);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n, antes);
 });

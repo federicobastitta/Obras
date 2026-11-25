@@ -212,12 +212,12 @@ function construirObra(db, ctx, def) {
 }
 
 // ---------- las dos obras de ejemplo ----------
-function casa(propietario) {
+function casa(propietario, arquitecto) {
   return {
     nombre: 'Casa Los Álamos', tipo: 'Vivienda', edad: 40, dir: 'dir', con: 'con',
     personas: {
       dir: { nombre: propietario, rol: 'propietario' },
-      arq: { nombre: 'Lucía Fernández (demo)', rol: 'arquitecto' },
+      arq: { nombre: arquitecto || 'Lucía Fernández (demo)', rol: 'arquitecto' },
       con: { nombre: 'Marcos Giménez (demo)', rol: 'constructor' },
       plo: { nombre: 'Pedro Ruiz (demo)', rol: 'constructor', rubro: 'Plomería', limitado: true },
       ele: { nombre: 'Sofía Ledesma (demo)', rol: 'constructor', rubro: 'Electricidad', limitado: true },
@@ -274,12 +274,12 @@ function casa(propietario) {
   };
 }
 
-function clinica(propietario) {
+function clinica(propietario, arquitecto) {
   return {
     nombre: 'Clínica Norte', tipo: 'Clínica o consultorio', edad: 25, dir: 'dir', con: 'con',
     personas: {
       dir: { nombre: propietario, rol: 'propietario' },
-      arq: { nombre: 'Lucía Fernández (demo)', rol: 'arquitecto' },
+      arq: { nombre: arquitecto || 'Lucía Fernández (demo)', rol: 'arquitecto' },
       con: { nombre: 'Diego Salas (demo)', rol: 'constructor' },
       aire: { nombre: 'Aire Sur (demo)', rol: 'constructor', rubro: 'Aire acondicionado', limitado: true },
     },
@@ -303,11 +303,11 @@ function clinica(propietario) {
 }
 
 /** Crea las dos obras de ejemplo. Devuelve el acceso de propietario de cada una. */
-export function cargarDemo(db, { dirFotos, dirArchivos, propietario }) {
+export function cargarDemo(db, { dirFotos, dirArchivos, propietario, arquitecto }) {
   const ctx = { dirFotos, dirArchivos, escritos: [], semilla: 0 };
   db.exec('BEGIN');
   try {
-    const obras = [construirObra(db, ctx, casa(propietario)), construirObra(db, ctx, clinica(propietario))];
+    const obras = [construirObra(db, ctx, casa(propietario, arquitecto)), construirObra(db, ctx, clinica(propietario, arquitecto))];
     db.exec('COMMIT');
     return obras;
   } catch (e) {
@@ -315,4 +315,22 @@ export function cargarDemo(db, { dirFotos, dirArchivos, propietario }) {
     for (const r of ctx.escritos) fs.rmSync(r, { force: true });
     throw e;
   }
+}
+
+/**
+ * Deja lista la demostración para mostrarle el sistema a un arquitecto con nombre propio: crea las obras de ejemplo si
+ * no existen y le pone ese nombre al arquitecto. Devuelve un link para él y otro para el propietario; cada link abre
+ * las obras de demostración juntas. Se puede llamar todas las veces que haga falta.
+ */
+export function asegurarDemo(db, { dirFotos, dirArchivos, propietario, arquitecto, urlBase }) {
+  if (!db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n) {
+    cargarDemo(db, { dirFotos, dirArchivos, propietario, arquitecto });
+  } else if (arquitecto) {
+    db.prepare("UPDATE personas SET nombre = ? WHERE rol = 'arquitecto' AND obra_id IN (SELECT id FROM obras WHERE demo = 1)").run(arquitecto);
+  }
+  const de = (rol) => db
+    .prepare('SELECT p.token FROM personas p JOIN obras o ON o.id = p.obra_id WHERE o.demo = 1 AND p.rol = ? AND p.activa = 1 ORDER BY o.id, p.id')
+    .all(rol).map((x) => x.token);
+  const base = (urlBase || '').replace(/\/$/, '');
+  return { arquitecto: `${base}/#k=${de('arquitecto').join(',')}`, propietario: `${base}/#k=${de('propietario').join(',')}` };
 }
