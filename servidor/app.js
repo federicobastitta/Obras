@@ -697,6 +697,13 @@ export function crearApp({ dirDatos, dirWeb, sistemas = SISTEMAS, pedir = fetch,
 
     if (a === 'personas') {
       soloDireccion(p);
+      // Quien pide arreglos elige a quién encargárselos (Darío, Alejandro): ve solo a quienes ejecutan, sin sus links.
+      if (p.pide && m === 'GET' && !id) {
+        return responder(200, {
+          personas: q.personas.all(p.obra_id).filter((x) => x.rol === 'constructor' && x.activa)
+            .map(({ id: i, nombre, rol, rubro, limitado, activa }) => ({ id: i, nombre, rol, rubro, limitado, activa })),
+        });
+      }
       noPide(p);
       if (m === 'GET' && !id) return responder(200, { personas: q.personas.all(p.obra_id) });
       if (m === 'POST' && !id) {

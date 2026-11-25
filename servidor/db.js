@@ -133,6 +133,7 @@ export function abrirBase(ruta) {
   // Quien pide tareas desde Conectar o FC: entra con su usuario de allá (externo = "conectar:12" / "fc:usuario")
   // y solo ve los pedidos que cargó él.
   asegurar('personas', 'pide', 'INTEGER NOT NULL DEFAULT 0');
+  asegurar('llaves', 'rol', "TEXT NOT NULL DEFAULT 'constructor'");
   asegurar('personas', 'externo', "TEXT NOT NULL DEFAULT ''");
   return db;
 }
@@ -282,19 +283,30 @@ export function entradaDeQuienPide(db, { propietario, externo, nombre }) {
  * Llave de una persona del equipo: un solo código corto que abre todas sus obras de ese propietario (las de hoy y las
  * que se sumen). Los links con varios códigos separados por coma se rompían al pasar por WhatsApp (dueño 25/11/2026).
  */
-export function llaveDeEquipo(db, { propietario, nombre }) {
+export function llaveDeEquipo(db, { propietario, nombre, rol = 'constructor' }) {
   const ya = db.prepare('SELECT codigo FROM llaves WHERE propietario = ? AND nombre = ?').get(propietario, nombre);
   if (ya) return ya.codigo;
   const codigo = nuevoToken();
-  db.prepare('INSERT INTO llaves (codigo, propietario, nombre, creada) VALUES (?, ?, ?, ?)').run(codigo, propietario, nombre, ahora());
+  db.prepare('INSERT INTO llaves (codigo, propietario, nombre, rol, creada) VALUES (?, ?, ?, ?, ?)').run(codigo, propietario, nombre, rol, ahora());
   return codigo;
+}
+
+/** Suma a cada persona del equipo en las obras del propietario donde todavía no está (una sede nueva). Devuelve cuántas sumó. */
+export function completarEquipo(db, { propietario, personas }) {
+  const esta = db.prepare("SELECT 1 FROM personas WHERE obra_id = ? AND nombre = ? AND rol = 'constructor' AND pide = 0");
+  const ins = db.prepare("INSERT INTO personas (obra_id, nombre, rol, rubro, limitado, token, creada) VALUES (?, ?, 'constructor', ?, 0, ?, ?)");
+  let n = 0;
+  for (const o of obrasDelPropietario(db, propietario)) {
+    for (const x of personas) if (!esta.get(o.id, x.nombre)) { ins.run(o.id, x.nombre, x.rubro || '', nuevoToken(), ahora()); n++; }
+  }
+  return n;
 }
 
 /** Tokens que abre una llave: las personas activas con ese nombre que ejecutan tareas en las obras del propietario. */
 export function tokensDeLlave(db, codigo) {
-  const ll = db.prepare('SELECT propietario, nombre FROM llaves WHERE codigo = ?').get(String(codigo || ''));
+  const ll = db.prepare('SELECT propietario, nombre, rol FROM llaves WHERE codigo = ?').get(String(codigo || ''));
   if (!ll) return [];
   return obrasDelPropietario(db, ll.propietario)
-    .map((o) => db.prepare("SELECT token FROM personas WHERE obra_id = ? AND nombre = ? AND rol = 'constructor' AND activa = 1 AND pide = 0 ORDER BY id LIMIT 1").get(o.id, ll.nombre))
+    .map((o) => db.prepare('SELECT token FROM personas WHERE obra_id = ? AND nombre = ? AND rol = ? AND activa = 1 AND pide = 0 ORDER BY id LIMIT 1').get(o.id, ll.nombre, ll.rol))
     .filter(Boolean).map((x) => x.token);
 }
