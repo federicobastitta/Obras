@@ -1,0 +1,20 @@
+// Da de alta a quienes ejecutan las tareas de un propietario (datos-iniciales/equipo.json) en todas sus obras,
+// una sola vez por identificador (lo corre infra/instalar.sh). Deja en <DIR_DATOS>/<archivo> el link de cada uno.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { abrirBase, altaDeEquipo } from './db.js';
+
+const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const dirDatos = path.resolve(process.env.DIR_DATOS || path.join(raiz, 'datos'));
+const alta = JSON.parse(fs.readFileSync(path.join(raiz, 'datos-iniciales', 'equipo.json'), 'utf8'));
+const db = abrirBase(path.join(dirDatos, 'obras.db'));
+db.exec('PRAGMA busy_timeout = 5000');
+const r = altaDeEquipo(db, alta);
+if (!r.hecho) console.log(`El alta «${alta.id}» ya estaba hecha: no se repite.`);
+else {
+  const base = (process.env.URL_BASE || '').replace(/\/$/, '');
+  const archivo = path.join(dirDatos, path.basename(alta.archivo || 'acceso-equipo.txt'));
+  fs.writeFileSync(archivo, r.personas.map((x) => `${x.nombre}: ${base}/#k=${x.tokens.join(',')}`).join('\n') + '\n', { mode: 0o600 });
+  console.log(`Alta «${alta.id}»: ${r.personas.map((x) => x.nombre).join(', ')}. Links en ${archivo}`);
+}

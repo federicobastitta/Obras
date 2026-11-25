@@ -123,6 +123,10 @@ export function abrirBase(ruta) {
   asegurar('personas', 'rubro', "TEXT NOT NULL DEFAULT ''");
   asegurar('personas', 'limitado', 'INTEGER NOT NULL DEFAULT 0');
   asegurar('tareas', 'asignada_a', 'INTEGER REFERENCES personas(id)');
+  // Quien pide tareas desde Conectar o FC: entra con su usuario de allá (externo = "conectar:12" / "fc:usuario")
+  // y solo ve los pedidos que cargó él.
+  asegurar('personas', 'pide', 'INTEGER NOT NULL DEFAULT 0');
+  asegurar('personas', 'externo', "TEXT NOT NULL DEFAULT ''");
   return db;
 }
 
@@ -201,4 +205,68 @@ export function altaDeObras(db, { id, propietario, obras }) {
     db.exec('ROLLBACK');
     throw e;
   }
+}
+
+/** Obras activas (no demo) cuyo propietario se llama así: por ejemplo, las sedes de «Diagnosticar». */
+export function obrasDelPropietario(db, propietario) {
+  return db.prepare(`SELECT DISTINCT o.id, o.nombre FROM obras o JOIN personas p ON p.obra_id = o.id
+    WHERE o.demo = 0 AND p.rol = 'propietario' AND p.activa = 1 AND p.nombre = ? ORDER BY o.id`).all(propietario);
+}
+
+/**
+ * Da de alta a quienes ejecutan las tareas (constructores, sin limitar) en todas las obras de un propietario,
+ * una sola vez por identificador. Devuelve { hecho, personas: [{ nombre, tokens }] }.
+ */
+export function altaDeEquipo(db, { id, propietario, personas }) {
+  db.exec('CREATE TABLE IF NOT EXISTS cargas (id TEXT PRIMARY KEY, fecha TEXT NOT NULL)');
+  if (db.prepare('SELECT 1 FROM cargas WHERE id = ?').get(id)) return { hecho: false, personas: [] };
+  const obras = obrasDelPropietario(db, propietario);
+  if (!obras.length) throw new Error(`No hay obras del propietario «${propietario}».`);
+  db.exec('BEGIN');
+  try {
+    const t = ahora();
+    const ins = db.prepare("INSERT INTO personas (obra_id, nombre, rol, rubro, limitado, token, creada) VALUES (?, ?, 'constructor', ?, 0, ?, ?)");
+    const salida = personas.map((x) => ({
+      nombre: x.nombre,
+      tokens: obras.map((o) => { const tk = nuevoToken(); ins.run(o.id, x.nombre, x.rubro || '', tk, t); return tk; }),
+    }));
+    db.prepare('INSERT INTO cargas (id, fecha) VALUES (?, ?)').run(id, t);
+    db.exec('COMMIT');
+    return { hecho: true, personas: salida };
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
+/**
+ * Entrada de alguien que pide tareas desde otro sistema: en cada obra del propietario usa (o crea) su persona
+ * «pide», con rol arquitecto para poder cargar pedidos. Devuelve los tokens, uno por obra (sin las dadas de baja).
+ */
+export function entradaDeQuienPide(db, { propietario, externo, nombre }) {
+  const obras = obrasDelPropietario(db, propietario);
+  const buscar = db.prepare('SELECT token, activa FROM personas WHERE obra_id = ? AND externo = ? AND pide = 1');
+  const ins = db.prepare("INSERT INTO personas (obra_id, nombre, rol, token, pide, externo, creada) VALUES (?, ?, 'arquitecto', ?, 1, ?, ?)");
+  const ponerNombre = db.prepare('UPDATE personas SET nombre = ? WHERE token = ?');
+  const tokens = [];
+  db.exec('BEGIN');
+  try {
+    for (const o of obras) {
+      const ya = buscar.get(o.id, externo);
+      if (ya) {
+        if (!ya.activa) continue;
+        ponerNombre.run(nombre, ya.token);
+        tokens.push(ya.token);
+      } else {
+        const tk = nuevoToken();
+        ins.run(o.id, nombre, tk, externo, ahora());
+        tokens.push(tk);
+      }
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return tokens;
 }
