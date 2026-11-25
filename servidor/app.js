@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { abrirBase, ahora, nuevoToken, TIPOS_DE_OBRA, entradaDeQuienPide } from './db.js';
+import { abrirBase, ahora, nuevoToken, TIPOS_DE_OBRA, entradaDeQuienPide, tokensDeLlave } from './db.js';
 import { cargarDemo } from './demo.js';
 
 const TIPOS = {
@@ -295,6 +295,11 @@ export function crearApp({ dirDatos, dirWeb, sistemas = SISTEMAS, pedir = fetch,
     const m = req.method;
     const partes = url.pathname.split('/').filter(Boolean).slice(1); // sin "api"
     if (partes[0] === 'entrar' && partes.length === 1 && m === 'POST') return entrar(req, res);
+    if (partes[0] === 'llave' && partes.length === 2 && m === 'GET') {
+      const tokens = /^[0-9a-f]{20,}$/i.test(partes[1]) ? tokensDeLlave(db, partes[1].toLowerCase()) : [];
+      res.writeHead(tokens.length ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify(tokens.length ? { tokens } : { error: 'Ese link no es válido o fue dado de baja.' }));
+    }
     const aut = req.headers.authorization || '';
     const token = aut.startsWith('Bearer ') ? aut.slice(7).trim() : '';
     const p = token ? q.persona.get(token) : null;

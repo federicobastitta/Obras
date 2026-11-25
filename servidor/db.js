@@ -13,6 +13,13 @@ CREATE TABLE IF NOT EXISTS obras (
   creada TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS llaves (
+  codigo TEXT PRIMARY KEY,
+  propietario TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  creada TEXT NOT NULL,
+  UNIQUE (propietario, nombre)
+);
 CREATE TABLE IF NOT EXISTS personas (
   id INTEGER PRIMARY KEY,
   obra_id INTEGER NOT NULL REFERENCES obras(id),
@@ -269,4 +276,25 @@ export function entradaDeQuienPide(db, { propietario, externo, nombre }) {
     throw e;
   }
   return tokens;
+}
+
+/**
+ * Llave de una persona del equipo: un solo código corto que abre todas sus obras de ese propietario (las de hoy y las
+ * que se sumen). Los links con varios códigos separados por coma se rompían al pasar por WhatsApp (dueño 25/11/2026).
+ */
+export function llaveDeEquipo(db, { propietario, nombre }) {
+  const ya = db.prepare('SELECT codigo FROM llaves WHERE propietario = ? AND nombre = ?').get(propietario, nombre);
+  if (ya) return ya.codigo;
+  const codigo = nuevoToken();
+  db.prepare('INSERT INTO llaves (codigo, propietario, nombre, creada) VALUES (?, ?, ?, ?)').run(codigo, propietario, nombre, ahora());
+  return codigo;
+}
+
+/** Tokens que abre una llave: las personas activas con ese nombre que ejecutan tareas en las obras del propietario. */
+export function tokensDeLlave(db, codigo) {
+  const ll = db.prepare('SELECT propietario, nombre FROM llaves WHERE codigo = ?').get(String(codigo || ''));
+  if (!ll) return [];
+  return obrasDelPropietario(db, ll.propietario)
+    .map((o) => db.prepare("SELECT token FROM personas WHERE obra_id = ? AND nombre = ? AND rol = 'constructor' AND activa = 1 AND pide = 0 ORDER BY id LIMIT 1").get(o.id, ll.nombre))
+    .filter(Boolean).map((x) => x.token);
 }

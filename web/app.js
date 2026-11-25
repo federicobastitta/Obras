@@ -275,6 +275,8 @@ function pantallaIngreso(mensaje) {
       e.preventDefault();
       let v = campo.value.trim();
       try { v = decodeURIComponent(v); } catch {}
+      const conLlave = v.match(/[#?&]l=([0-9a-f]{20,})/i);
+      if (conLlave) { history.replaceState(null, '', location.pathname + '#l=' + conLlave[1]); arrancar(); return; }
       const codigos = (/k=/i.test(v) ? v.slice(v.search(/k=/i) + 2) : v).match(/[0-9a-f]{20,}/gi);
       const k = codigos ? codigos.join(',') : '';
       if (!k) return avisar('Ese link no tiene un código de acceso.', true);
@@ -1567,6 +1569,19 @@ async function arrancar() {
       return;
     }
   }
+  // Link con llave (#l=código): un solo código que abre todas las obras de esa persona.
+  const llave = location.hash.match(/^#l=([0-9a-f]{20,})/i);
+  if (llave) {
+    history.replaceState(null, '', location.pathname);
+    try {
+      const r = await fetch('/api/llave/' + llave[1]);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return pantallaIngreso(d.error || 'Ese link no es válido o fue dado de baja.');
+      history.replaceState(null, '', location.pathname + '#k=' + d.tokens.join(','));
+    } catch {
+      return pantallaIngreso('No hay conexión. Probá de nuevo cuando vuelva la señal.');
+    }
+  }
   // El link puede traer un código o varios separados por coma (uno por obra): se abre la primera y se recuerdan todas.
   // WhatsApp y algunos navegadores cambian la coma por %2C o le agregan algo al final: se toman los códigos que haya.
   let hash = location.hash;
@@ -1605,7 +1620,7 @@ async function arrancar() {
 }
 
 window.addEventListener('hashchange', () => {
-  if (/^#(k|entrar)=/i.test(location.hash)) { yo = null; arrancar(); } else mostrar();
+  if (/^#(k|l|entrar)=/i.test(location.hash)) { yo = null; arrancar(); } else mostrar();
 });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 arrancar();
