@@ -1,6 +1,6 @@
 {
-  "name": "Obras",
-  "short_name": "Obras",
+  "name": "Construir",
+  "short_name": "Construir",
   "description": "Tareas pendientes de la obra: presupuestos, plazos, fotos y pagos.",
   "lang": "es",
   "start_url": "/",
