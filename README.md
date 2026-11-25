@@ -13,8 +13,14 @@ Se instala en el celular (PWA) y cada persona entra con su link personal, sin co
   entrega, estado y pagos.
 - El propietario o el arquitecto aprueban o rechazan el presupuesto (el rechazo pide motivo).
 - El constructor marca la tarea como realizada; el propietario o el arquitecto la verifican o la devuelven con el motivo.
-- Fotos de antes y después, comentarios, pagos y un historial de quién hizo qué y cuándo.
-- Varias obras: quien dirige una obra puede crear otra desde la pestaña Obras y pasar de una a otra.
+- Fotos de antes y después, archivos adjuntos (PDF, planos DWG, planillas… hasta 20 MB, siempre como descarga),
+  comentarios, pagos y un historial de quién hizo qué y cuándo.
+- Los links de acceso se mandan por WhatsApp con un botón: quien lo abre entra sin usuario ni contraseña.
+- Inicio con cuadros y carpetas: todas las obras de la persona, cada una con su tipo (vivienda, clínica, local…), avance, lo que espera su
+  respuesta, plazos vencidos y saldo. Desde ahí se crean obras nuevas y se entra a cada una.
+- Proveedores: desde Inicio se da de alta un proveedor (plomero, electricista…) con el trabajo que se le encarga en
+  una obra. Recibe un link y ve solo ese trabajo: lo presupuesta, le pone fecha, sube fotos y lo marca al terminar.
+- Quien llega sin link ve una página que explica la app, pensada para un arquitecto.
 - Resumen: avance, tareas con plazo vencido y plata presupuestada, aprobada, pagada y saldo por lugar.
 
 Estados de una tarea: sin presupuesto → presupuesto a aprobar → aprobada → realizada → terminada (o devuelta).
@@ -52,5 +58,5 @@ Sin https el celular no deja instalarla como app. La primera vez, los links de a
 
 ## Lo que todavía no tiene
 
-Avisos al celular o por WhatsApp, varios gremios que vean solo lo suyo, dependencias entre tareas,
+Avisos al celular o por WhatsApp, dependencias entre tareas,
 uso sin señal (hoy abre las pantallas pero necesita conexión para los datos), y exportar a PDF o Excel.

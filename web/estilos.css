@@ -136,3 +136,62 @@ input[type="checkbox"] { width: 22px; height: 22px; flex: none; padding: 0; marg
   display: grid; gap: 12px; align-content: start; }
 .ventana h2.tarea { font-size: 1.2rem; font-weight: 650; overflow-wrap: anywhere; }
 @media (min-width: 640px) { .fondo { align-items: center; padding: 24px; } .ventana { border-radius: 14px; } }
+
+/* Página de inicio (sin link de acceso) */
+.portada { background: var(--accent); color: var(--on-accent);
+  padding: calc(env(safe-area-inset-top, 0px) + 28px) max(16px, env(safe-area-inset-right, 0px)) 36px max(16px, env(safe-area-inset-left, 0px)); }
+.ancho-pagina { max-width: 720px; margin: 0 auto; display: grid; gap: 14px; justify-items: start; }
+.portada .marca { font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.85rem; opacity: 0.85; }
+.portada h1 { font-size: clamp(1.7rem, 6vw, 2.5rem); line-height: 1.12; font-weight: 700; text-wrap: balance; }
+.portada .bajada { font-size: 1.05rem; max-width: 58ch; opacity: 0.92; }
+.boton.claro { background: var(--on-accent); color: var(--accent); border-color: var(--on-accent); font-weight: 650; padding: 11px 18px; }
+main.inicio { gap: 30px; padding-top: 26px; }
+.inicio section { display: grid; gap: 12px; }
+.inicio section > h2 { font-size: 1.2rem; font-weight: 700; }
+.funciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 28px; }
+.funcion { padding: 12px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; align-content: start; }
+.funcion h3 { font-size: 1rem; font-weight: 650; }
+.funcion p { color: var(--muted); font-size: 0.95rem; }
+.circuito { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.circuito li { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 11px 14px; }
+.circuito li + li { border-top: 1px solid var(--line); }
+.pasos { margin: 0; padding-left: 1.4em; display: grid; gap: 10px; }
+.pasos li { padding-left: 4px; }
+.pasos li strong { display: block; }
+.pasos li span { color: var(--muted); font-size: 0.95rem; }
+
+/* Inicio: cuadros, como un escritorio */
+.cuadros { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.cuadro { display: grid; align-content: start; gap: 6px; text-align: left; min-height: 118px; padding: 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); min-width: 0; }
+.cuadro strong { font-size: 1rem; font-weight: 650; overflow-wrap: anywhere; }
+.cuadro.dato { align-content: space-between; min-height: 96px; }
+.cuadro.dato .cifra { font-size: 2.1rem; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cuadro.dato.aviso-info { background: var(--tint-info); border-color: transparent; }
+.cuadro.dato.aviso-info .cifra { color: var(--info); }
+.cuadro.dato.aviso-mal { background: var(--tint-danger); border-color: transparent; }
+.cuadro.dato.aviso-mal .cifra { color: var(--danger); }
+button.cuadro { cursor: pointer; }
+button.cuadro:active { transform: scale(0.985); }
+.cuadro.accion { background: var(--accent); color: var(--on-accent); border-color: var(--accent); align-content: space-between; }
+.cuadro.accion .mas { font-size: 1.9rem; line-height: 0.8; font-weight: 300; }
+.cuadro.accion .sub { color: inherit; opacity: 0.85; }
+.cuadros.obras { grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 16px 10px; }
+/* Cada obra es una carpeta: la solapa de arriba lleva el tipo. */
+.carpeta { position: relative; display: grid; padding-top: 12px; }
+.carpeta::before { content: ""; position: absolute; top: 0; left: 0; width: 46%; height: 13px; background: var(--surface);
+  border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; }
+.cuadro.obra { border-top-left-radius: 0; min-height: 150px; padding-bottom: 44px; }
+.cuadro.obra .tipo { font-size: 0.72rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.carpeta .engranaje { position: absolute; right: 8px; bottom: 8px; font-size: 0.78rem; padding: 3px 9px; color: var(--muted); background: var(--bg); }
+progress { width: 100%; height: 8px; appearance: none; -webkit-appearance: none; border: 0; border-radius: 999px; overflow: hidden; background: var(--line); }
+progress::-webkit-progress-bar { background: var(--line); }
+progress::-webkit-progress-value { background: var(--ok); }
+progress::-moz-progress-bar { background: var(--ok); }
+.rejilla p.ancho { grid-column: 1 / -1; }
+.cuerpo-ventana { display: grid; gap: 12px; }
+@media (prefers-reduced-motion: reduce) { button.cuadro:active { transform: none; } }
+
+.boton.principal { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 650; }
+.boton.chico { font-size: 0.85rem; padding: 5px 10px; }
+input[type="file"] { padding: 8px; font-size: 0.9rem; }

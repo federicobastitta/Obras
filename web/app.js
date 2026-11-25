@@ -32,6 +32,10 @@ function estadoPresupuesto(t) {
   return t.estado === 'pendiente' ? 'rechazado' : 'aprobado';
 }
 const chipPresupuesto = (estado) => h('span', { class: 'chip ' + ESTADOS_PRESUPUESTO[estado][1] }, ESTADOS_PRESUPUESTO[estado][0]);
+const TIPOS_DE_OBRA = ['Vivienda', 'Clínica o consultorio', 'Local comercial', 'Oficina', 'Edificio', 'Industria o depósito', 'Espacio exterior', 'Otra'];
+const RUBROS = ['Plomería', 'Electricidad', 'Albañilería', 'Pintura', 'Carpintería', 'Herrería', 'Gas', 'Durlock y yesería', 'Pisos y revestimientos', 'Aire acondicionado', 'Pileta', 'Jardinería', 'Vidrios y aberturas', 'Techos e impermeabilización'];
+/** Cómo se nombra a una persona según su rol: un constructor con acceso limitado es un proveedor de un rubro. */
+const rotulo = (p) => (p.limitado ? `Proveedor${p.rubro ? ' · ' + p.rubro : ''}` : ROLES[p.rol] + (p.rubro ? ' · ' + p.rubro : ''));
 const ROLES = { propietario: 'Propietario', arquitecto: 'Arquitecto', constructor: 'Constructor' };
 const EVENTOS = {
   creada: 'cargó la tarea',
@@ -46,6 +50,8 @@ const EVENTOS = {
   comentario: 'comentó',
   foto: 'subió una foto',
   foto_borrada: 'borró una foto',
+  archivo: 'subió un archivo',
+  archivo_borrado: 'borró un archivo',
   pago: 'registró un pago',
   pago_borrado: 'borró un pago',
 };
@@ -86,10 +92,12 @@ const esDireccion = () => yo.rol === 'propietario' || yo.rol === 'arquitecto';
 const esConstructor = () => yo.rol === 'constructor';
 const terminada = (t) => t.estado === 'verificada';
 const vencida = (t) => t.plazo && t.plazo < hoy() && !['realizada', 'verificada'].includes(t.estado);
-function meToca(t) {
-  if (esConstructor()) return ['pendiente', 'aprobada', 'devuelta'].includes(t.estado);
+/** Si la tarea espera una respuesta de alguien con ese rol. */
+function leToca(t, rol) {
+  if (rol === 'constructor') return ['pendiente', 'aprobada', 'devuelta'].includes(t.estado);
   return ['presupuestada', 'realizada'].includes(t.estado);
 }
+const meToca = (t) => leToca(t, yo.rol);
 
 let relojAviso;
 function avisar(texto, error = false) {
@@ -164,28 +172,73 @@ async function achicar(archivo) {
   return new Promise((ok, mal) => lienzo.toBlob((b) => (b ? ok(b) : mal(new Error('No se pudo preparar la foto.'))), 'image/jpeg', 0.82));
 }
 
-// ---------- ingreso ----------
+// ---------- inicio (sin link de acceso) ----------
+// Página de presentación, pensada para un arquitecto: qué resuelve la app y cómo se entra.
 function pantallaIngreso(mensaje) {
+  document.title = 'Construir';
   const campo = h('input', { id: 'codigo', type: 'text', autocomplete: 'off', placeholder: 'Pegá acá tu link de acceso' });
+  const entrar = h('form', {
+    class: 'caja', id: 'entrar',
+    onsubmit: (e) => {
+      e.preventDefault();
+      const v = campo.value.trim();
+      const k = (v.match(/k=([0-9a-f]{20,}(?:,[0-9a-f]{20,})*)/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
+      if (!k) return avisar('Ese link no tiene un código de acceso.', true);
+      history.replaceState(null, '', location.pathname + '#k=' + k);
+      arrancar();
+    },
+  },
+    h('h2', null, 'Entrar a tu obra'),
+    mensaje ? h('p', { class: 'nota' }, mensaje) : null,
+    h('p', { class: 'sub' }, 'Cada persona entra con un link personal, sin usuario ni contraseña. Si ya te pasaron el tuyo, abrilo o pegalo acá.'),
+    h('label', { for: 'codigo' }, 'Link de acceso', campo),
+    h('button', { class: 'principal', type: 'submit' }, 'Entrar'));
+
+  const funcion = (titulo, texto) => h('article', { class: 'funcion' }, h('h3', null, titulo), h('p', null, texto));
+  const paso = (titulo, texto) => h('li', null, h('strong', null, titulo), h('span', null, texto));
+  const etapa = (clase, nombre, quien) => h('li', null, h('span', { class: 'chip ' + clase }, nombre), h('span', { class: 'sub' }, quien));
+
   app.replaceChildren(
-    h('main', null,
-      h('form', {
-        class: 'caja ingreso',
-        onsubmit: (e) => {
-          e.preventDefault();
-          const v = campo.value.trim();
-          const k = (v.match(/k=([0-9a-f]{20,})/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
-          if (!k) return avisar('Ese link no tiene un código de acceso.', true);
-          guardarToken(k);
-          arrancar();
-        },
-      },
-        h('h2', null, 'Construir'),
-        mensaje ? h('p', { class: 'nota' }, mensaje) : null,
-        h('p', { class: 'sub' }, 'Para entrar hace falta el link personal que te pasó el propietario o el arquitecto de la obra.'),
-        h('label', { for: 'codigo' }, 'Link de acceso', campo),
-        h('button', { class: 'principal', type: 'submit' }, 'Entrar'),
-      ),
+    h('header', { class: 'portada' },
+      h('div', { class: 'ancho-pagina' },
+        h('p', { class: 'marca' }, 'Construir'),
+        h('h1', null, 'Los pendientes de tu obra, con precio, fecha y responsable.'),
+        h('p', { class: 'bajada' }, 'Cargás lo que falta hacer, el constructor lo presupuesta y le pone fecha de entrega, y vos aprobás y verificás desde el celular. Todo queda escrito: nadie discute qué se pidió ni cuánto se acordó.'),
+        h('a', { class: 'boton claro', href: '#entrar', onclick: (e) => { e.preventDefault(); entrar.scrollIntoView({ behavior: 'smooth' }); campo.focus({ preventScroll: true }); } }, 'Ya tengo mi link de acceso'))),
+    h('main', { class: 'inicio' },
+      mensaje ? entrar : null,
+      h('section', null,
+        h('h2', null, 'Qué hacés como arquitecto'),
+        h('div', { class: 'funciones' },
+          funcion('Cargás los pendientes', 'Tarea por tarea, ordenadas por ambiente (cocina, baños, galería…) y con prioridad. Les sumás fotos para mostrar exactamente qué hay que hacer.'),
+          funcion('Recibís el presupuesto', 'El constructor cotiza cada tarea, o junta varias y les pone un solo precio. Siempre con fecha de entrega y una nota de qué incluye.'),
+          funcion('Aprobás o rechazás', 'Con un toque. Si rechazás, queda escrito el motivo y el constructor puede volver a cotizar.'),
+          funcion('Verificás el trabajo', 'Cuando el constructor marca una tarea como realizada, la revisás: la das por terminada o la devolvés con el motivo.'),
+          funcion('Controlás la plata', 'Registrás anticipos y pagos. El resumen muestra presupuestado, aprobado, pagado y saldo, por ambiente y en total, en pesos o dólares.'),
+          funcion('Llevás varias obras', 'Cada obra tiene sus tareas, su gente y sus números por separado. Pasás de una a otra desde la misma app.'))),
+      h('section', null,
+        h('h2', null, 'El recorrido de cada tarea'),
+        h('p', { class: 'sub' }, 'En todo momento se ve en qué etapa está cada pendiente y a quién le toca moverlo.'),
+        h('ol', { class: 'circuito' },
+          etapa('pend', 'Sin presupuesto', 'Cotiza el constructor'),
+          etapa('info', 'Presupuesto a aprobar', 'Aprobás vos'),
+          etapa('info', 'Aprobada, por hacer', 'Trabaja el constructor'),
+          etapa('pend', 'Realizada, a verificar', 'Verificás vos'),
+          etapa('ok', 'Terminada', 'Queda en el historial'))),
+      h('section', null,
+        h('h2', null, 'Lo que queda registrado'),
+        h('div', { class: 'funciones' },
+          funcion('Fotos de antes y después', 'Las sube cualquiera desde el celular, en la tarea que corresponde.'),
+          funcion('Comentarios', 'Las preguntas y aclaraciones quedan en la tarea, no perdidas en un chat.'),
+          funcion('Historial', 'Quién cargó, cotizó, aprobó, pagó o devolvió cada cosa, con fecha y hora.'),
+          funcion('Plazos vencidos', 'Las tareas que pasaron su fecha de entrega se marcan en rojo.'))),
+      h('section', null,
+        h('h2', null, 'Cómo se empieza'),
+        h('ol', { class: 'pasos' },
+          paso('Entrás con tu link.', 'Lo recibís por WhatsApp y lo abrís en el celular. Se puede instalar como una app.'),
+          paso('Sumás a las personas.', 'Al constructor y al propietario les generás su propio link desde la pestaña Personas.'),
+          paso('Cargás los pendientes.', 'El constructor los ve al instante y empieza a presupuestar.'))),
+      mensaje ? null : entrar,
     ),
   );
 }
@@ -208,14 +261,14 @@ function guardarAccesos(lista) {
 }
 function recordarAcceso() {
   const lista = accesos().filter((x) => x.token !== token);
-  lista.push({ token, obra: obra.nombre, persona: yo.nombre, rol: yo.rol });
+  lista.push({ token, obra: obra.nombre, tipo: obra.tipo || '', persona: yo.nombre, rol: yo.rol, rubro: yo.rubro || '', limitado: !!yo.limitado });
   guardarAccesos(lista);
 }
-function cambiarDeObra(k) {
+function cambiarDeObra(k, destino = '') {
   guardarToken(k);
   yo = null;
   filtro = null;
-  if (location.hash && location.hash !== '#/') history.replaceState(null, '', location.pathname);
+  history.replaceState(null, '', location.pathname + (destino ? '#/' + destino : ''));
   arrancar();
 }
 
@@ -227,15 +280,15 @@ function marco(actual, ...contenido) {
   app.replaceChildren(
     h('header', { class: 'barra' },
       h('div', { class: 'fila' },
-        h('h1', null, obra.nombre),
-        h('span', { class: 'quien' }, `${yo.nombre} · ${ROLES[yo.rol]}`),
+        h('h1', null, actual === '' ? 'Construir' : obra.nombre),
+        h('span', { class: 'quien' }, `${yo.nombre} · ${rotulo(yo)}`),
       ),
       h('nav', { class: 'pestanas' },
-        pestana('', 'Tareas'),
+        pestana('', 'Inicio'),
+        pestana('tareas', 'Tareas'),
         pestana('presupuestos', 'Presupuestos'),
         pestana('resumen', 'Resumen'),
         esDireccion() ? pestana('personas', 'Personas') : null,
-        pestana('obras', 'Obras'),
       ),
     ),
     h('main', null, ...contenido),
@@ -246,6 +299,68 @@ async function cargarTareas() {
   const d = await api('GET', '/tareas');
   tareas = d.tareas;
   grupos = d.grupos || [];
+}
+
+// ---------- ayudantes compartidos ----------
+/** Constructor y proveedores activos de la obra abierta (solo lo puede pedir quien dirige). */
+async function quienesEjecutan() {
+  try {
+    return (await api('GET', '/personas')).personas.filter((x) => x.rol === 'constructor' && x.activa);
+  } catch {
+    return [];
+  }
+}
+function selectorDeQuien(id, personas, actual) {
+  const sel = h('select', { id }, h('option', { value: '' }, 'Sin encargar a nadie en particular'), personas.map((x) => h('option', { value: x.id }, `${x.nombre} · ${rotulo(x)}`)));
+  sel.value = actual ?? '';
+  return sel;
+}
+const ES_FOTO = /\.(jpe?g|png|webp|heic)$/i;
+const tamano = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+/** Sube fotos y archivos a una tarea con el link indicado. Las fotos se achican; lo demás va tal cual (hasta 20 MB). */
+async function subirAdjuntos(k, tareaId, lista, momentoFoto = 'otro') {
+  for (const a of lista) {
+    const foto = a.type.startsWith('image/') && !/heic/i.test(a.type + a.name);
+    if (!foto && a.size > 20 * 1024 * 1024) throw new Error(`«${a.name}» pesa más de 20 MB.`);
+    const ruta = foto ? `/api/tareas/${tareaId}/fotos?momento=${momentoFoto}` : `/api/tareas/${tareaId}/archivos?nombre=${encodeURIComponent(a.name)}`;
+    let r;
+    try {
+      r = await fetch(ruta, { method: 'POST', headers: { Authorization: 'Bearer ' + k }, body: foto ? await achicar(a) : a });
+    } catch (e) {
+      throw new Error(e.message && !/fetch/i.test(e.message) ? e.message : 'No hay conexión. Probá de nuevo cuando vuelva la señal.');
+    }
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `No se pudo subir «${a.name}».`);
+  }
+}
+async function bajarArchivo(a) {
+  const r = await fetch('/api/archivos/' + a.id, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) throw new Error('No se pudo bajar el archivo.');
+  const u = URL.createObjectURL(await r.blob());
+  const enlace = h('a', { href: u, download: a.nombre });
+  document.body.append(enlace);
+  enlace.click();
+  enlace.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 60000);
+}
+/** Link que abre WhatsApp con el mensaje escrito. Con número va directo a ese chat; sin número, deja elegir el contacto. */
+function linkDeWhatsApp(mensaje, numero = '') {
+  const n = numero.replace(/\D/g, '');
+  return `https://wa.me/${n}?text=${encodeURIComponent(mensaje)}`;
+}
+
+/** Ventana emergente con título y botón de cerrar. Devuelve { cuerpo, cerrar }. */
+function ventana(titulo, alCerrar) {
+  const cuerpo = h('div', { class: 'cuerpo-ventana' });
+  const caja = h('div', { class: 'ventana', role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo },
+    h('div', { class: 'fila entre' }, h('h2', { class: 'tarea' }, titulo), h('button', { class: 'chico', type: 'button', onclick: () => cerrar() }, 'Cerrar')),
+    cuerpo);
+  const fondo = h('div', { class: 'fondo', onclick: (e) => { if (e.target === fondo) cerrar(); } }, caja);
+  function cerrar() {
+    fondo.remove();
+    if (alCerrar) alCerrar();
+  }
+  document.body.append(fondo);
+  return { cuerpo, cerrar };
 }
 
 // ---------- lista ----------
@@ -270,6 +385,7 @@ async function vistaLista() {
   const lugares = [...new Set(tareas.map((t) => t.lugar).filter(Boolean))];
   let alta = null;
   if (esDireccion()) {
+    const encargada = selectorDeQuien('n-quien', await quienesEjecutan(), null);
     const texto = h('input', { id: 'n-texto', type: 'text', maxlength: 400, required: true, placeholder: 'Qué falta hacer' });
     const lugar = h('input', { id: 'n-lugar', type: 'text', maxlength: 60, list: 'lugares', placeholder: 'Cocina, pileta, frente…' });
     const prioridad = h('select', { id: 'n-prioridad' },
@@ -280,13 +396,14 @@ async function vistaLista() {
         class: 'rejilla',
         onsubmit: async (e) => {
           e.preventDefault();
-          const ok = await hacer(e.submitter, () => api('POST', '/tareas', { texto: texto.value, lugar: lugar.value, prioridad: prioridad.value }), 'Tarea cargada.');
+          const ok = await hacer(e.submitter, () => api('POST', '/tareas', { texto: texto.value, lugar: lugar.value, prioridad: prioridad.value, asignada_a: encargada.value || null }), 'Tarea cargada.');
           if (ok) { filtro = 'abiertas'; vistaLista(); }
         },
       },
         h('label', { class: 'ancho', for: 'n-texto' }, 'Tarea', texto),
         h('label', { for: 'n-lugar' }, 'Lugar de la casa', lugar),
         h('label', { for: 'n-prioridad' }, 'Prioridad', prioridad),
+        h('label', { class: 'ancho', for: 'n-quien' }, 'Encargada a', encargada),
         h('datalist', { id: 'lugares' }, lugares.map((l) => h('option', { value: l }))),
         h('button', { class: 'principal ancho', type: 'submit' }, 'Agregar tarea'),
       ),
@@ -323,21 +440,23 @@ async function vistaLista() {
           h('span', { class: 'datos' },
             chipEstado(t),
             t.prioridad === 'alta' && !terminada(t) ? h('span', { class: 'chip mal' }, 'Prioridad alta') : null,
+            t.asignada_nombre && !yo.limitado ? h('span', { class: 'chip' }, `${t.asignada_rubro || 'Proveedor'} · ${t.asignada_nombre}`) : null,
             t.grupo_id ? h('span', { class: 'chip' }, 'Grupo: ' + (grupos.find((g) => g.id === t.grupo_id)?.nombre || '')) : null,
             t.monto != null ? h('span', null, plata(t.monto, t.moneda)) : null,
             t.plazo ? h('span', { class: vencida(t) ? 'vencida' : null }, (vencida(t) ? 'Venció el ' : 'Entrega ') + dia(t.plazo)) : null,
             t.fotos ? h('span', null, `${t.fotos} ${t.fotos === 1 ? 'foto' : 'fotos'}`) : null,
+            t.archivos ? h('span', null, `${t.archivos} ${t.archivos === 1 ? 'archivo' : 'archivos'}`) : null,
             t.comentarios ? h('span', null, `${t.comentarios} ${t.comentarios === 1 ? 'comentario' : 'comentarios'}`) : null,
           ),
         ),
       ))));
   }
-  marco('', alta, filtros, ...cuerpo);
+  marco('tareas', alta, filtros, ...cuerpo);
 }
 
 // ---------- detalle ----------
 async function vistaTarea(id) {
-  const { tarea: t, grupo, eventos, fotos } = await api('GET', '/tareas/' + id);
+  const { tarea: t, grupo, eventos, fotos, archivos } = await api('GET', '/tareas/' + id);
   const recargar = () => vistaTarea(id);
   const accion = (control, cuerpo, hecho) => hacer(control, () => api('POST', `/tareas/${id}/accion`, cuerpo), hecho).then((ok) => ok && recargar());
 
@@ -436,6 +555,30 @@ async function vistaTarea(id) {
       h('label', { for: 'f-archivo' }, 'Agregar fotos', archivo)),
   );
 
+  // Archivos (planos, presupuestos en PDF, planillas…)
+  const subirArchivo = h('input', {
+    id: 'a-archivo', type: 'file', multiple: true,
+    accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.dwg,.dxf,.zip,image/*',
+    onchange: async () => {
+      const elegidos = [...subirArchivo.files];
+      if (!elegidos.length) return;
+      const ok = await hacer(subirArchivo, () => subirAdjuntos(token, id, elegidos, cuando.value), elegidos.length === 1 ? 'Archivo subido.' : `${elegidos.length} archivos subidos.`);
+      if (ok) recargar(); else subirArchivo.value = '';
+    },
+  });
+  const cajaArchivos = h('section', { class: 'caja' },
+    h('h2', null, 'Archivos'),
+    archivos.length ? h('ul', { class: 'historial' }, archivos.map((a) =>
+      h('li', null,
+        h('span', { class: 'fila entre' },
+          h('strong', { class: 'texto' }, a.nombre),
+          h('span', { class: 'fila' },
+            h('button', { class: 'chico', type: 'button', onclick: (e) => hacer(e.currentTarget, () => bajarArchivo(a)) }, 'Descargar'),
+            esDireccion() || a.persona_id === yo.id ? h('button', { class: 'chico peligro', type: 'button', onclick: (e) => hacer(e.currentTarget, () => api('DELETE', '/archivos/' + a.id), 'Archivo borrado.').then((ok) => ok && recargar()) }, 'Borrar') : null)),
+        h('span', { class: 'cuando' }, `${tamano(a.tamano)} · ${a.persona || 'Alguien'} · ${momento(a.fecha)}`))))
+      : h('p', { class: 'sub' }, 'Todavía no hay archivos.'),
+    h('label', { for: 'a-archivo' }, 'Agregar archivos (PDF, planos, planillas… hasta 20 MB)', subirArchivo));
+
   // Comentarios e historial
   const comentario = h('textarea', { id: 'c-texto', maxlength: 1000, required: true, placeholder: 'Escribí una pregunta o aclaración' });
   const cajaHistorial = h('section', { class: 'caja' },
@@ -464,9 +607,10 @@ async function vistaTarea(id) {
     const lugar = h('input', { id: 'e-lugar', type: 'text', maxlength: 60, value: t.lugar });
     const prioridad = h('select', { id: 'e-prioridad' }, h('option', { value: 'media' }, 'Normal'), h('option', { value: 'alta' }, 'Alta'), h('option', { value: 'baja' }, 'Baja'));
     prioridad.value = t.prioridad;
+    const encargada = selectorDeQuien('e-quien', await quienesEjecutan(), t.asignada_a);
     const confirmar = h('div', { class: 'fila', hidden: true },
       h('span', { class: 'sub' }, 'Se borra la tarea con sus fotos, pagos e historial.'),
-      h('button', { class: 'peligro', type: 'button', onclick: async (e) => { if (await hacer(e.currentTarget, () => api('DELETE', '/tareas/' + id), 'Tarea borrada.')) location.hash = '#/'; } }, 'Sí, borrar'),
+      h('button', { class: 'peligro', type: 'button', onclick: async (e) => { if (await hacer(e.currentTarget, () => api('DELETE', '/tareas/' + id), 'Tarea borrada.')) location.hash = '#/tareas'; } }, 'Sí, borrar'),
       h('button', { type: 'button', onclick: () => { confirmar.hidden = true; } }, 'No'));
     edicion = h('details', { class: 'caja' },
       h('summary', { class: 'titulo' }, 'Editar o borrar la tarea'),
@@ -474,20 +618,21 @@ async function vistaTarea(id) {
         class: 'rejilla',
         onsubmit: async (e) => {
           e.preventDefault();
-          const ok = await hacer(e.submitter, () => api('PATCH', '/tareas/' + id, { texto: texto.value, lugar: lugar.value, prioridad: prioridad.value }), 'Cambios guardados.');
+          const ok = await hacer(e.submitter, () => api('PATCH', '/tareas/' + id, { texto: texto.value, lugar: lugar.value, prioridad: prioridad.value, asignada_a: encargada.value || null }), 'Cambios guardados.');
           if (ok) recargar();
         },
       },
         h('label', { class: 'ancho', for: 'e-texto' }, 'Tarea', texto),
         h('label', { for: 'e-lugar' }, 'Lugar de la casa', lugar),
         h('label', { for: 'e-prioridad' }, 'Prioridad', prioridad),
+        h('label', { class: 'ancho', for: 'e-quien' }, 'Encargada a', encargada),
         h('button', { class: 'principal', type: 'submit' }, 'Guardar cambios'),
         h('button', { class: 'peligro', type: 'button', onclick: () => { confirmar.hidden = false; } }, 'Borrar tarea')),
       confirmar);
   }
 
-  marco('',
-    h('a', { href: '#/' }, '← Volver a las tareas'),
+  marco('tareas',
+    h('a', { href: '#/tareas' }, '← Volver a las tareas'),
     h('section', { class: 'detalle caja' },
       h('p', { class: 'sub' }, t.lugar || 'Sin lugar'),
       h('h2', { class: 'tarea' }, t.texto),
@@ -495,7 +640,7 @@ async function vistaTarea(id) {
         chipEstado(t),
         t.prioridad !== 'media' ? h('span', { class: 'chip' + (t.prioridad === 'alta' ? ' mal' : '') }, 'Prioridad ' + t.prioridad) : null,
         h('span', null, 'Cargada el ' + dia(t.creada)))),
-    presupuesto, avance, cajaFotos, cajaHistorial, edicion,
+    presupuesto, avance, cajaFotos, cajaArchivos, cajaHistorial, edicion,
   );
 }
 
@@ -605,8 +750,9 @@ async function vistaPersonas() {
       h('ul', { class: 'historial' }, personas.map((p) =>
         h('li', null,
           h('span', { class: 'fila entre' },
-            h('span', null, h('strong', null, p.nombre), ` · ${ROLES[p.rol]}`, p.id === yo.id ? ' (vos)' : '', p.activa ? '' : ' · dada de baja'),
+            h('span', null, h('strong', null, p.nombre), ` · ${rotulo(p)}`, p.id === yo.id ? ' (vos)' : '', p.activa ? '' : ' · dada de baja'),
             h('span', { class: 'fila' },
+              p.activa && p.id !== yo.id ? h('a', { class: 'boton chico', href: linkDeWhatsApp(`Hola ${p.nombre}, te paso tu link para entrar a ${obra.nombre} en Construir: ${link(p)}`), target: '_blank', rel: 'noopener' }, 'WhatsApp') : null,
               p.activa ? h('button', { class: 'chico', type: 'button', onclick: () => copiar(p) }, 'Copiar link') : null,
               p.id !== yo.id ? h('button', {
                 class: 'chico' + (p.activa ? ' peligro' : ''), type: 'button',
@@ -846,46 +992,205 @@ async function abrirPresupuesto(ref, alCambiar) {
   if (await pintar()) document.body.append(fondo);
 }
 
-// ---------- obras ----------
-function vistaObras() {
+// ---------- inicio: cuadros, como un escritorio ----------
+/** Pide datos con el link de otra obra, sin tocar la sesión actual. */
+async function pedirCon(k, metodo, ruta, cuerpo) {
+  const op = { method: metodo, headers: { Authorization: 'Bearer ' + k } };
+  if (cuerpo) { op.headers['Content-Type'] = 'application/json'; op.body = JSON.stringify(cuerpo); }
+  let r;
+  try { r = await fetch('/api' + ruta, op); } catch { throw new Error('No hay conexión. Probá de nuevo cuando vuelva la señal.'); }
+  const datos = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(datos.error || 'No se pudo completar.');
+  return datos;
+}
+function selectorDeTipo(id, actual = '') {
+  const sel = h('select', { id }, h('option', { value: '' }, 'Sin definir'), TIPOS_DE_OBRA.map((t) => h('option', { value: t }, t)));
+  sel.value = actual;
+  return sel;
+}
+
+async function vistaInicio() {
   const lista = accesos();
-  const nombre = h('input', { id: 'o-nombre', type: 'text', maxlength: 80, required: true, placeholder: 'Quincho, local, casa de fin de semana…' });
-  const link = h('input', { id: 'o-link', type: 'text', autocomplete: 'off', placeholder: 'Pegá acá el link que te pasaron' });
-  marco('obras',
-    h('section', { class: 'caja' },
-      h('h2', null, 'Tus obras en este celular'),
-      h('ul', { class: 'historial' }, lista.map((x) =>
-        h('li', null,
-          h('span', { class: 'fila entre' },
-            h('span', null, h('strong', null, x.obra), ` · ${ROLES[x.rol] || ''}`, x.token === token ? ' (abierta)' : ''),
-            x.token !== token ? h('button', { class: 'chico', type: 'button', onclick: () => cambiarDeObra(x.token) }, 'Abrir') : null)))),
-      lista.length < 2 ? h('p', { class: 'sub' }, 'Cuando tengas más de una obra, desde acá pasás de una a otra.') : null),
-    esDireccion() ? h('form', {
-      class: 'caja',
+  const fichas = await Promise.all(lista.map(async (x) => {
+    try {
+      const [quien, datos] = await Promise.all([pedirCon(x.token, 'GET', '/yo'), pedirCon(x.token, 'GET', '/tareas')]);
+      const ts = datos.tareas;
+      const rol = quien.persona.rol;
+      const saldos = {};
+      const sumar = (moneda, aprobado, pagado) => { if (aprobado || pagado) saldos[moneda] = (saldos[moneda] || 0) + aprobado - pagado; };
+      for (const t of ts) if (!t.grupo_id) sumar(t.moneda, ['aprobada', 'realizada', 'verificada', 'devuelta'].includes(t.estado) ? t.monto || 0 : 0, t.pagado);
+      for (const g of datos.grupos || []) sumar(g.moneda, g.estado === 'aprobado' ? g.monto : 0, g.pagado);
+      return {
+        token: x.token, obra: quien.obra, persona: quien.persona, rol, total: ts.length,
+        hechas: ts.filter(terminada).length,
+        tocan: ts.filter((t) => leToca(t, rol)).length,
+        vencidas: ts.filter(vencida).length,
+        saldos,
+      };
+    } catch {
+      return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {} };
+    }
+  }));
+  guardarAccesos(lista.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '' } : x; }));
+  fichas.sort((a, b) => b.tocan - a.tocan || b.vencidas - a.vencidas);
+  const dirigidas = fichas.filter((f) => !f.error && (f.rol === 'propietario' || f.rol === 'arquitecto'));
+  const suma = (campo) => fichas.reduce((n, f) => n + f[campo], 0);
+  const refrescar = () => { if (!location.hash.replace(/^#\/?/, '')) vistaInicio(); };
+
+  // ----- ventanas -----
+  function nuevaObra() {
+    const v = ventana('Nueva obra');
+    const nombre = h('input', { id: 'o-nombre', type: 'text', maxlength: 80, required: true, placeholder: 'Quincho, local de Lanús, casa de fin de semana…' });
+    const tipo = selectorDeTipo('o-tipo');
+    v.cuerpo.append(h('form', {
+      class: 'rejilla',
       onsubmit: async (e) => {
         e.preventDefault();
         let nueva;
-        const ok = await hacer(e.submitter, async () => { nueva = await api('POST', '/obras', { nombre: nombre.value }); }, 'Obra creada.');
-        if (ok) cambiarDeObra(nueva.token);
+        const ok = await hacer(e.submitter, async () => { nueva = await api('POST', '/obras', { nombre: nombre.value, tipo: tipo.value }); }, 'Obra creada.');
+        if (ok) { v.cerrar(); cambiarDeObra(nueva.token, 'tareas'); }
       },
     },
-      h('h2', null, 'Nueva obra'),
-      h('p', { class: 'sub' }, `Arranca vacía y entrás como ${ROLES[yo.rol].toLowerCase()}. Después sumás a las personas desde la pestaña Personas.`),
+      h('p', { class: 'sub ancho' }, `Arranca vacía y entrás como ${ROLES[yo.rol].toLowerCase()}. Después le cargás las tareas y sumás a las personas.`),
       h('label', { for: 'o-nombre' }, 'Nombre de la obra', nombre),
-      h('button', { class: 'principal', type: 'submit' }, 'Crear obra')) : null,
-    h('form', {
-      class: 'caja',
+      h('label', { for: 'o-tipo' }, 'Tipo de obra', tipo),
+      h('button', { class: 'principal ancho', type: 'submit' }, 'Crear obra')));
+    nombre.focus();
+  }
+
+  function editarObra(f) {
+    const v = ventana('Datos de la obra');
+    const nombre = h('input', { id: 'eo-nombre', type: 'text', maxlength: 80, required: true, value: f.obra.nombre });
+    const tipo = selectorDeTipo('eo-tipo', f.obra.tipo || '');
+    v.cuerpo.append(h('form', {
+      class: 'rejilla',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const ok = await hacer(e.submitter, async () => {
+          const r = await pedirCon(f.token, 'PATCH', '/obra', { nombre: nombre.value, tipo: tipo.value });
+          if (f.token === token) obra = r.obra;
+        }, 'Obra actualizada.');
+        if (ok) { v.cerrar(); refrescar(); }
+      },
+    },
+      h('label', { for: 'eo-nombre' }, 'Nombre de la obra', nombre),
+      h('label', { for: 'eo-tipo' }, 'Tipo de obra', tipo),
+      h('button', { class: 'principal ancho', type: 'submit' }, 'Guardar')));
+  }
+
+  function nuevoProveedor() {
+    const v = ventana('Nuevo proveedor', refrescar);
+    const cual = h('select', { id: 'pr-obra' }, dirigidas.map((f) => h('option', { value: f.token }, f.obra.nombre)));
+    if (dirigidas.some((f) => f.token === token)) cual.value = token;
+    const nombre = h('input', { id: 'pr-nombre', type: 'text', maxlength: 60, required: true, placeholder: 'Nombre del proveedor' });
+    const rubro = h('input', { id: 'pr-rubro', type: 'text', maxlength: 40, required: true, list: 'rubros', placeholder: 'Plomería, electricidad…' });
+    const lugar = h('input', { id: 'pr-lugar', type: 'text', maxlength: 60, placeholder: 'Baño, cocina, toda la sede…' });
+    const whatsapp = h('input', { id: 'pr-whatsapp', type: 'tel', inputmode: 'tel', maxlength: 25, placeholder: '54 9 11 1234 5678' });
+    const adjuntos = h('input', { id: 'pr-adjuntos', type: 'file', multiple: true, accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.dwg,.dxf,.zip,image/*' });
+    const trabajos = h('textarea', { id: 'pr-trabajos', required: true, rows: 4, placeholder: 'Un trabajo por renglón.\nCambiar flexibles del baño\nDestapar rejilla del patio' });
+    v.cuerpo.append(h('form', {
+      class: 'rejilla',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const destino = dirigidas.find((f) => f.token === cual.value);
+        let alta;
+        const ok = await hacer(e.submitter, async () => {
+          alta = await pedirCon(destino.token, 'POST', '/proveedores', {
+            nombre: nombre.value, rubro: rubro.value, lugar: lugar.value,
+            tareas: trabajos.value.split('\n').map((x) => x.trim()).filter(Boolean),
+          });
+        });
+        if (!ok) return;
+        const elegidos = [...adjuntos.files];
+        let subidos = true;
+        if (elegidos.length) subidos = await hacer(e.submitter, () => subirAdjuntos(destino.token, alta.ids[0], elegidos, 'antes'));
+        const link = `${location.origin}/#k=${alta.token}`;
+        const mensaje = `Hola ${nombre.value.trim()}, te paso el link para ver el trabajo de ${rubro.value.trim()} en ${destino.obra.nombre}: ${link}`;
+        const campo = h('input', { id: 'pr-link', type: 'text', readonly: true, value: link, 'aria-label': 'Link del proveedor' });
+        v.cuerpo.replaceChildren(
+          h('p', null, h('strong', null, nombre.value.trim()), ` quedó como proveedor de ${rubro.value.trim()} en `, h('strong', null, destino.obra.nombre),
+            `, con ${alta.tareas} ${alta.tareas === 1 ? 'trabajo encargado' : 'trabajos encargados'}.`),
+          elegidos.length ? h('p', { class: subidos ? 'sub' : 'nota' }, subidos
+            ? `Las fotos y archivos (${elegidos.length}) quedaron en el primer trabajo.`
+            : 'El proveedor se creó, pero no se pudieron subir todas las fotos y archivos. Subilos desde la tarea.') : null,
+          h('p', { class: 'sub' }, 'Mandale este link por WhatsApp. Con solo abrirlo entra a la app, sin usuario ni contraseña, y ve únicamente su trabajo: lo presupuesta, le pone fecha de entrega, sube fotos y archivos y lo marca cuando lo termina.'),
+          campo,
+          h('div', { class: 'fila' },
+            h('a', { class: 'boton principal', href: linkDeWhatsApp(mensaje, whatsapp.value), target: '_blank', rel: 'noopener' }, 'Enviar por WhatsApp'),
+            h('button', {
+              type: 'button',
+              onclick: async () => {
+                try { await navigator.clipboard.writeText(mensaje); avisar('Mensaje con el link copiado. Pegalo en WhatsApp.'); } catch { campo.select(); avisar('Mantené apretado el link para copiarlo.'); }
+              },
+            }, 'Copiar mensaje con el link'),
+            h('button', { type: 'button', onclick: () => v.cerrar() }, 'Listo')));
+      },
+    },
+      h('label', { class: 'ancho', for: 'pr-obra' }, 'Obra', cual),
+      h('label', { for: 'pr-nombre' }, 'Nombre', nombre),
+      h('label', { for: 'pr-rubro' }, 'Rubro', rubro),
+      h('datalist', { id: 'rubros' }, RUBROS.map((r) => h('option', { value: r }))),
+      h('label', { class: 'ancho', for: 'pr-lugar' }, 'Lugar (opcional)', lugar),
+      h('label', { class: 'ancho', for: 'pr-trabajos' }, 'Trabajo que le encargás', trabajos),
+      h('label', { class: 'ancho', for: 'pr-adjuntos' }, 'Fotos y archivos del trabajo (opcional)', adjuntos),
+      h('label', { class: 'ancho', for: 'pr-whatsapp' }, 'WhatsApp del proveedor, con código de país (opcional)', whatsapp),
+      h('button', { class: 'principal ancho', type: 'submit' }, 'Crear proveedor y su link')));
+    nombre.focus();
+  }
+
+  function sumarConLink() {
+    const v = ventana('Sumar una obra con un link');
+    const link = h('input', { id: 'o-link', type: 'text', autocomplete: 'off', placeholder: 'Pegá acá el link que te pasaron' });
+    v.cuerpo.append(h('form', {
+      class: 'rejilla',
       onsubmit: (e) => {
         e.preventDefault();
-        const v = link.value.trim();
-        const k = (v.match(/k=([0-9a-f]{20,})/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
+        const texto = link.value.trim();
+        const k = (texto.match(/k=([0-9a-f]{20,}(?:,[0-9a-f]{20,})*)/i) || texto.match(/^([0-9a-f]{20,})$/i) || [])[1];
         if (!k) return avisar('Ese link no tiene un código de acceso.', true);
-        cambiarDeObra(k);
+        v.cerrar();
+        history.replaceState(null, '', location.pathname + '#k=' + k);
+        yo = null;
+        arrancar();
       },
     },
-      h('h2', null, 'Sumar una obra con un link'),
-      h('label', { for: 'o-link' }, 'Link de acceso', link),
-      h('button', { type: 'submit' }, 'Entrar a esa obra')),
+      h('label', { class: 'ancho', for: 'o-link' }, 'Link de acceso', link),
+      h('button', { class: 'principal ancho', type: 'submit' }, 'Entrar a esa obra')));
+    link.focus();
+  }
+
+  // ----- cuadros -----
+  const accion = (titulo, detalle, alTocar) => h('button', { class: 'cuadro accion', type: 'button', onclick: alTocar },
+    h('span', { class: 'mas', 'aria-hidden': 'true' }, '+'), h('strong', null, titulo), h('span', { class: 'sub' }, detalle));
+  const dato = (valor, texto, clase) => h('div', { class: 'cuadro dato' + (clase && valor ? ' ' + clase : '') }, h('span', { class: 'cifra' }, valor), h('span', { class: 'sub' }, texto));
+
+  const cuadrosDeObra = fichas.map((f) => {
+    const avance = f.total ? Math.round((f.hechas / f.total) * 100) : 0;
+    const dirige = dirigidas.includes(f);
+    return h('div', { class: 'carpeta' },
+      h('button', { class: 'cuadro obra', type: 'button', onclick: () => cambiarDeObra(f.token, 'tareas'), 'aria-label': `Abrir ${f.obra.nombre}` },
+        h('span', { class: 'tipo' }, f.obra.tipo || 'Tipo sin definir'),
+        h('strong', { class: 'texto' }, f.obra.nombre),
+        f.error ? h('span', { class: 'chip mal' }, 'No se pudo leer') : h('progress', { max: 100, value: avance, 'aria-label': `Avance: ${avance}%` }),
+        f.error ? null : h('span', { class: 'sub' }, f.total ? `${avance}% · ${f.hechas} de ${f.total}` : 'Sin tareas todavía'),
+        h('span', { class: 'datos' },
+          f.tocan ? h('span', { class: 'chip info' }, `${f.tocan} para vos`) : null,
+          f.vencidas ? h('span', { class: 'chip mal' }, `${f.vencidas} ${f.vencidas === 1 ? 'vencida' : 'vencidas'}`) : null,
+          Object.entries(f.saldos).filter(([, n]) => n).map(([moneda, n]) => h('span', null, `Saldo ${plata(n, moneda)}`)),
+          f.persona && f.persona.limitado ? h('span', null, rotulo(f.persona)) : null)),
+      dirige ? h('button', { class: 'engranaje', type: 'button', onclick: () => editarObra(f), 'aria-label': `Cambiar nombre o tipo de ${f.obra.nombre}` }, 'Editar') : null);
+  });
+
+  marco('',
+    h('div', { class: 'cuadros' },
+      dato(suma('tocan'), suma('tocan') === 1 ? 'Espera tu respuesta' : 'Esperan tu respuesta', 'aviso-info'),
+      dato(suma('vencidas'), 'Con plazo vencido', 'aviso-mal'),
+      dato(suma('total') - suma('hechas'), 'Tareas abiertas'),
+      dirigidas.length ? accion('Nueva obra', 'Vivienda, clínica, local…', nuevaObra) : null,
+      dirigidas.length ? accion('Nuevo proveedor', 'Plomero, electricista… con su link', nuevoProveedor) : null,
+      accion('Sumar con un link', 'Una obra que te compartieron', sumarConLink)),
+    h('h2', { class: 'grupo' }, fichas.length === 1 ? 'Tu obra' : 'Tus obras', h('small', null, 'Tocá una para abrirla')),
+    h('div', { class: 'cuadros obras' }, cuadrosDeObra),
   );
 }
 
@@ -898,8 +1203,8 @@ async function mostrar() {
     else if (ruta === 'presupuestos') await vistaPresupuestos();
     else if (ruta === 'resumen') await vistaResumen();
     else if (ruta === 'personas') await vistaPersonas();
-    else if (ruta === 'obras') vistaObras();
-    else await vistaLista();
+    else if (ruta === 'tareas') await vistaLista();
+    else await vistaInicio();
     window.scrollTo(0, 0);
   } catch (e) {
     if (!token) return;

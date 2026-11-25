@@ -78,7 +78,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMINIO;
-    client_max_body_size 8m;
+    client_max_body_size 25m;
 
     location / {
         proxy_pass http://127.0.0.1:$PUERTO;
@@ -91,6 +91,8 @@ server {
 }
 NGINX
 fi
+# El sitio ya instalado (con los cambios de certbot) también tiene que aceptar archivos de hasta 20 MB.
+sed -i -E 's/client_max_body_size [0-9]+m;/client_max_body_size 25m;/' "$SITIO"
 ln -sfn "$SITIO" /etc/nginx/sites-enabled/obras
 nginx -t
 systemctl reload nginx

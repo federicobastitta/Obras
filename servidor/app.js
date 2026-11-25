@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { abrirBase, ahora, nuevoToken } from './db.js';
+import { abrirBase, ahora, nuevoToken, TIPOS_DE_OBRA } from './db.js';
 
 const TIPOS = {
   '.html': 'text/html; charset=utf-8',
@@ -14,6 +14,9 @@ const TIPOS = {
 };
 const MAX_JSON = 64 * 1024;
 const MAX_FOTO = 4 * 1024 * 1024;
+const MAX_ARCHIVO = 20 * 1024 * 1024;
+// Lo que se puede adjuntar a una tarea. Siempre se entrega como descarga, nunca se abre dentro de la app.
+const EXTENSIONES = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv', 'txt', 'dwg', 'dxf', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'zip'];
 const ROLES = ['propietario', 'arquitecto', 'constructor'];
 
 class ErrorHttp extends Error {
@@ -83,16 +86,20 @@ async function leerJson(req) {
 
 export function crearApp({ dirDatos, dirWeb }) {
   fs.mkdirSync(path.join(dirDatos, 'fotos'), { recursive: true });
+  fs.mkdirSync(path.join(dirDatos, 'archivos'), { recursive: true });
   const db = abrirBase(path.join(dirDatos, 'obras.db'));
   const dirFotos = path.join(dirDatos, 'fotos');
+  const dirArchivos = path.join(dirDatos, 'archivos');
 
   const q = {
-    persona: db.prepare('SELECT p.*, o.nombre AS obra_nombre FROM personas p JOIN obras o ON o.id = p.obra_id WHERE p.token = ? AND p.activa = 1'),
+    persona: db.prepare('SELECT p.*, o.nombre AS obra_nombre, o.tipo AS obra_tipo FROM personas p JOIN obras o ON o.id = p.obra_id WHERE p.token = ? AND p.activa = 1'),
     tareas: db.prepare(`SELECT t.*,
         (SELECT COUNT(*) FROM fotos f WHERE f.tarea_id = t.id) AS fotos,
+        (SELECT COUNT(*) FROM archivos a WHERE a.tarea_id = t.id) AS archivos,
         (SELECT COUNT(*) FROM eventos e WHERE e.tarea_id = t.id AND e.tipo = 'comentario') AS comentarios,
-        (SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.tarea_id = t.id) AS pagado
-      FROM tareas t WHERE t.obra_id = ? ORDER BY t.id`),
+        (SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.tarea_id = t.id) AS pagado,
+        pa.nombre AS asignada_nombre, pa.rubro AS asignada_rubro
+      FROM tareas t LEFT JOIN personas pa ON pa.id = t.asignada_a WHERE t.obra_id = ? ORDER BY t.id`),
     tarea: db.prepare('SELECT * FROM tareas WHERE id = ? AND obra_id = ?'),
     evento: db.prepare('INSERT INTO eventos (tarea_id, persona_id, tipo, detalle, fecha) VALUES (?, ?, ?, ?, ?)'),
     eventos: db.prepare(`SELECT e.id, e.tipo, e.detalle, e.fecha, p.nombre AS persona, p.rol
@@ -101,13 +108,13 @@ export function crearApp({ dirDatos, dirWeb }) {
       FROM fotos f LEFT JOIN personas p ON p.id = f.persona_id WHERE f.tarea_id = ? ORDER BY f.id`),
     pagos: db.prepare(`SELECT g.id, g.monto, g.fecha, g.nota, p.nombre AS persona
       FROM pagos g LEFT JOIN personas p ON p.id = g.persona_id WHERE g.tarea_id = ? ORDER BY g.fecha, g.id`),
-    personas: db.prepare('SELECT id, nombre, rol, token, activa FROM personas WHERE obra_id = ? ORDER BY id'),
+    personas: db.prepare('SELECT id, nombre, rol, rubro, limitado, token, activa FROM personas WHERE obra_id = ? ORDER BY id'),
     grupos: db.prepare(`SELECT g.*,
         (SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.grupo_id = g.id) AS pagado,
         (SELECT COUNT(*) FROM tareas t WHERE t.grupo_id = g.id) AS cantidad
       FROM grupos g WHERE g.obra_id = ? ORDER BY g.id`),
     grupo: db.prepare('SELECT * FROM grupos WHERE id = ? AND obra_id = ?'),
-    tareasDeGrupo: db.prepare('SELECT id, texto, lugar, estado FROM tareas WHERE grupo_id = ? ORDER BY id'),
+    tareasDeGrupo: db.prepare('SELECT id, texto, lugar, estado, asignada_a FROM tareas WHERE grupo_id = ? ORDER BY id'),
     pagosDeGrupo: db.prepare(`SELECT g.id, g.monto, g.fecha, g.nota, p.nombre AS persona
       FROM pagos g LEFT JOIN personas p ON p.id = g.persona_id WHERE g.grupo_id = ? ORDER BY g.fecha, g.id`),
   };
@@ -141,8 +148,16 @@ export function crearApp({ dirDatos, dirWeb }) {
   };
   const buscarTarea = (id, p) => {
     const t = q.tarea.get(Number(id), p.obra_id);
-    if (!t) throw falla(404, 'No se encontró la tarea.');
+    // Un proveedor (acceso limitado) solo llega a los trabajos que tiene asignados.
+    if (!t || (p.limitado && t.asignada_a !== p.id)) throw falla(404, 'No se encontró la tarea.');
     return t;
+  };
+  /** Valida a quién se le encarga una tarea: tiene que ser alguien que ejecuta (constructor o proveedor) de esta obra. */
+  const aQuien = (valor, p_obra) => {
+    if (valor == null || valor === '') return null;
+    const x = db.prepare("SELECT id FROM personas WHERE id = ? AND obra_id = ? AND rol = 'constructor' AND activa = 1").get(Number(valor), p_obra);
+    if (!x) throw falla(400, 'Esa persona no puede recibir trabajos en esta obra.');
+    return x.id;
   };
   const anotar = (tareaId, p, tipo, detalle = '') => q.evento.run(tareaId, p.id, tipo, detalle, ahora());
 
@@ -224,8 +239,8 @@ export function crearApp({ dirDatos, dirWeb }) {
 
     if (a === 'yo' && m === 'GET') {
       return responder(200, {
-        persona: { id: p.id, nombre: p.nombre, rol: p.rol },
-        obra: { id: p.obra_id, nombre: p.obra_nombre },
+        persona: { id: p.id, nombre: p.nombre, rol: p.rol, rubro: p.rubro, limitado: !!p.limitado },
+        obra: { id: p.obra_id, nombre: p.obra_nombre, tipo: p.obra_tipo },
       });
     }
 
@@ -234,26 +249,47 @@ export function crearApp({ dirDatos, dirWeb }) {
       soloDireccion(p);
       const c = await leerJson(req);
       const nombre = texto(c.nombre, 80, { requerido: true, nombre: 'El nombre de la obra' });
+      const tipo = TIPOS_DE_OBRA.includes(c.tipo) ? c.tipo : '';
       const t = ahora();
-      const obraId = db.prepare('INSERT INTO obras (nombre, creada) VALUES (?, ?)').run(nombre, t).lastInsertRowid;
+      const obraId = db.prepare('INSERT INTO obras (nombre, tipo, creada) VALUES (?, ?, ?)').run(nombre, tipo, t).lastInsertRowid;
       const tk = nuevoToken();
       db.prepare('INSERT INTO personas (obra_id, nombre, rol, token, creada) VALUES (?, ?, ?, ?, ?)').run(obraId, p.nombre, p.rol, tk, t);
-      return responder(201, { token: tk, obra: { id: Number(obraId), nombre } });
+      return responder(201, { token: tk, obra: { id: Number(obraId), nombre, tipo } });
+    }
+
+    if (a === 'obra' && !id && m === 'PATCH') {
+      soloDireccion(p);
+      const c = await leerJson(req);
+      const nombre = texto(c.nombre ?? p.obra_nombre, 80, { requerido: true, nombre: 'El nombre de la obra' });
+      const tipo = c.tipo === undefined ? p.obra_tipo : TIPOS_DE_OBRA.includes(c.tipo) ? c.tipo : '';
+      db.prepare('UPDATE obras SET nombre = ?, tipo = ? WHERE id = ?').run(nombre, tipo, p.obra_id);
+      return responder(200, { obra: { id: p.obra_id, nombre, tipo } });
     }
 
     if (a === 'tareas' && !id) {
-      if (m === 'GET') return responder(200, { tareas: q.tareas.all(p.obra_id), grupos: q.grupos.all(p.obra_id) });
+      if (m === 'GET') {
+        let lista = q.tareas.all(p.obra_id);
+        let grupos = q.grupos.all(p.obra_id);
+        if (p.limitado) {
+          const ajenos = new Set(lista.filter((t) => t.grupo_id && t.asignada_a !== p.id).map((t) => t.grupo_id));
+          lista = lista.filter((t) => t.asignada_a === p.id);
+          const propios = new Set(lista.map((t) => t.grupo_id).filter(Boolean));
+          grupos = grupos.filter((g) => propios.has(g.id) && !ajenos.has(g.id));
+        }
+        return responder(200, { tareas: lista, grupos });
+      }
       if (m === 'POST') {
         soloDireccion(p);
         const c = await leerJson(req);
         const t = ahora();
         const nuevo = db
-          .prepare('INSERT INTO tareas (obra_id, lugar, texto, prioridad, creada_por, creada) VALUES (?, ?, ?, ?, ?, ?)')
+          .prepare('INSERT INTO tareas (obra_id, lugar, texto, prioridad, asignada_a, creada_por, creada) VALUES (?, ?, ?, ?, ?, ?, ?)')
           .run(
             p.obra_id,
             texto(c.lugar, 60, { nombre: 'El lugar' }),
             texto(c.texto, 400, { requerido: true, nombre: 'La tarea' }),
             ['alta', 'media', 'baja'].includes(c.prioridad) ? c.prioridad : 'media',
+            aQuien(c.asignada_a, p.obra_id),
             p.id,
             t,
           ).lastInsertRowid;
@@ -269,6 +305,8 @@ export function crearApp({ dirDatos, dirWeb }) {
           tarea: t,
           grupo: t.grupo_id ? q.grupo.get(t.grupo_id, p.obra_id) : null,
           eventos: q.eventos.all(t.id),
+          archivos: db.prepare(`SELECT a.id, a.nombre, a.tamano, a.fecha, a.persona_id, p.nombre AS persona
+            FROM archivos a LEFT JOIN personas p ON p.id = a.persona_id WHERE a.tarea_id = ? ORDER BY a.id`).all(t.id),
           fotos: q.fotos.all(t.id),
           pagos: q.pagos.all(t.id),
         });
@@ -279,8 +317,13 @@ export function crearApp({ dirDatos, dirWeb }) {
         const nuevoTexto = texto(c.texto ?? t.texto, 400, { requerido: true, nombre: 'La tarea' });
         const lugar = texto(c.lugar ?? t.lugar, 60, { nombre: 'El lugar' });
         const prioridad = ['alta', 'media', 'baja'].includes(c.prioridad) ? c.prioridad : t.prioridad;
-        db.prepare('UPDATE tareas SET texto = ?, lugar = ?, prioridad = ? WHERE id = ?').run(nuevoTexto, lugar, prioridad, t.id);
+        const asignada = c.asignada_a === undefined ? t.asignada_a : aQuien(c.asignada_a, p.obra_id);
+        db.prepare('UPDATE tareas SET texto = ?, lugar = ?, prioridad = ?, asignada_a = ? WHERE id = ?').run(nuevoTexto, lugar, prioridad, asignada, t.id);
         const cambios = [];
+        if (asignada !== t.asignada_a) {
+          const quien = asignada ? db.prepare('SELECT nombre FROM personas WHERE id = ?').get(asignada).nombre : 'nadie en particular';
+          cambios.push(`encargada a ${quien}`);
+        }
         if (nuevoTexto !== t.texto) cambios.push(`texto: «${t.texto}» → «${nuevoTexto}»`);
         if (lugar !== t.lugar) cambios.push(`lugar: ${t.lugar || 'sin lugar'} → ${lugar || 'sin lugar'}`);
         if (prioridad !== t.prioridad) cambios.push(`prioridad: ${t.prioridad} → ${prioridad}`);
@@ -289,9 +332,11 @@ export function crearApp({ dirDatos, dirWeb }) {
       }
       if (m === 'DELETE') {
         soloDireccion(p);
-        const archivos = db.prepare('SELECT archivo FROM fotos WHERE tarea_id = ?').all(t.id);
+        const susFotos = db.prepare('SELECT archivo FROM fotos WHERE tarea_id = ?').all(t.id);
+        const susArchivos = db.prepare('SELECT archivo FROM archivos WHERE tarea_id = ?').all(t.id);
         db.prepare('DELETE FROM tareas WHERE id = ?').run(t.id);
-        for (const f of archivos) fs.rm(path.join(dirFotos, f.archivo), { force: true }, () => {});
+        for (const f of susFotos) fs.rm(path.join(dirFotos, f.archivo), { force: true }, () => {});
+        for (const f of susArchivos) fs.rm(path.join(dirArchivos, f.archivo), { force: true }, () => {});
         return responder(200, { ok: true });
       }
     }
@@ -306,6 +351,20 @@ export function crearApp({ dirDatos, dirWeb }) {
         const c = await leerJson(req);
         anotar(t.id, p, 'comentario', texto(c.texto, 1000, { requerido: true, nombre: 'El comentario' }));
         return responder(201, { ok: true });
+      }
+      if (b === 'archivos' && m === 'POST') {
+        const nombre = texto(url.searchParams.get('nombre'), 150, { requerido: true, nombre: 'El nombre del archivo' }).replace(/[\\/\u0000-\u001f]/g, '_');
+        const ext = (nombre.match(/\.([A-Za-z0-9]{1,5})$/) || [])[1]?.toLowerCase();
+        if (!EXTENSIONES.includes(ext)) throw falla(400, `Ese tipo de archivo no se puede subir. Se aceptan: ${EXTENSIONES.join(', ')}.`);
+        const cuerpo = await leerCuerpo(req, MAX_ARCHIVO);
+        if (!cuerpo.length) throw falla(400, 'El archivo está vacío.');
+        const archivo = `${t.id}-${nuevoToken().slice(0, 16)}`;
+        fs.writeFileSync(path.join(dirArchivos, archivo), cuerpo);
+        const nuevo = db
+          .prepare('INSERT INTO archivos (tarea_id, persona_id, nombre, archivo, tamano, fecha) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(t.id, p.id, nombre, archivo, cuerpo.length, ahora()).lastInsertRowid;
+        anotar(t.id, p, 'archivo', nombre);
+        return responder(201, { id: Number(nuevo) });
       }
       if (b === 'fotos' && m === 'POST') {
         const cuerpo = await leerCuerpo(req, MAX_FOTO);
@@ -378,6 +437,7 @@ export function crearApp({ dirDatos, dirWeb }) {
         const g = q.grupo.get(Number(id), p.obra_id);
         if (!g) throw falla(404, 'No se encontró el grupo.');
         const suyas = q.tareasDeGrupo.all(g.id);
+        if (p.limitado && !(suyas.length && suyas.every((t) => t.asignada_a === p.id))) throw falla(404, 'No se encontró el grupo.');
         if (!b && m === 'GET') return responder(200, { grupo: g, tareas: suyas, pagos: q.pagosDeGrupo.all(g.id) });
         if (!b && m === 'PATCH') {
           soloConstructor(p);
@@ -447,11 +507,36 @@ export function crearApp({ dirDatos, dirWeb }) {
       }
     }
 
+    if (a === 'archivos' && id) {
+      const f = db
+        .prepare('SELECT a.*, t.obra_id, t.asignada_a FROM archivos a JOIN tareas t ON t.id = a.tarea_id WHERE a.id = ?')
+        .get(Number(id));
+      if (!f || f.obra_id !== p.obra_id || (p.limitado && f.asignada_a !== p.id)) throw falla(404, 'No se encontró el archivo.');
+      if (m === 'GET') {
+        const ruta = path.join(dirArchivos, f.archivo);
+        if (!fs.existsSync(ruta)) throw falla(404, 'No se encontró el archivo.');
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.nombre)}`,
+          'X-Content-Type-Options': 'nosniff',
+          'Cache-Control': 'private, no-store',
+        });
+        return fs.createReadStream(ruta).pipe(res);
+      }
+      if (m === 'DELETE') {
+        if (!esDireccion(p) && f.persona_id !== p.id) throw falla(403, 'Solo puede borrar el archivo quien lo subió, el propietario o el arquitecto.');
+        db.prepare('DELETE FROM archivos WHERE id = ?').run(f.id);
+        fs.rm(path.join(dirArchivos, f.archivo), { force: true }, () => {});
+        anotar(f.tarea_id, p, 'archivo_borrado', f.nombre);
+        return responder(200, { ok: true });
+      }
+    }
+
     if (a === 'fotos' && id) {
       const f = db
-        .prepare('SELECT f.*, t.obra_id FROM fotos f JOIN tareas t ON t.id = f.tarea_id WHERE f.id = ?')
+        .prepare('SELECT f.*, t.obra_id, t.asignada_a FROM fotos f JOIN tareas t ON t.id = f.tarea_id WHERE f.id = ?')
         .get(Number(id));
-      if (!f || f.obra_id !== p.obra_id) throw falla(404, 'No se encontró la foto.');
+      if (!f || f.obra_id !== p.obra_id || (p.limitado && f.asignada_a !== p.id)) throw falla(404, 'No se encontró la foto.');
       if (m === 'GET') {
         const ruta = path.join(dirFotos, f.archivo);
         if (!fs.existsSync(ruta)) throw falla(404, 'No se encontró la foto.');
@@ -467,6 +552,34 @@ export function crearApp({ dirDatos, dirWeb }) {
       }
     }
 
+    if (a === 'proveedores' && !id && m === 'POST') {
+      // Alta de un proveedor (plomero, electricista…) con el trabajo que se le encarga: entra con su link y ve solo eso.
+      soloDireccion(p);
+      const c = await leerJson(req);
+      const nombre = texto(c.nombre, 60, { requerido: true, nombre: 'El nombre del proveedor' });
+      const rubro = texto(c.rubro, 40, { requerido: true, nombre: 'El rubro' });
+      const lugar = texto(c.lugar, 60, { nombre: 'El lugar' });
+      const trabajos = (Array.isArray(c.tareas) ? c.tareas : []).map((x) => texto(x, 400, { nombre: 'La tarea' })).filter(Boolean);
+      if (!trabajos.length) throw falla(400, 'Escribí al menos un trabajo para encargarle.');
+      if (trabajos.length > 50) throw falla(400, 'Son demasiados trabajos juntos: cargá hasta 50 por vez.');
+      const tk = nuevoToken();
+      const creadas = [];
+      const personaId = enTransaccion(() => {
+        const t0 = ahora();
+        const nuevo = db
+          .prepare("INSERT INTO personas (obra_id, nombre, rol, rubro, limitado, token, creada) VALUES (?, ?, 'constructor', ?, 1, ?, ?)")
+          .run(p.obra_id, nombre, rubro, tk, t0).lastInsertRowid;
+        const poner = db.prepare('INSERT INTO tareas (obra_id, lugar, texto, asignada_a, creada_por, creada) VALUES (?, ?, ?, ?, ?, ?)');
+        for (const x of trabajos) {
+          const tareaId = poner.run(p.obra_id, lugar, x, nuevo, p.id, t0).lastInsertRowid;
+          creadas.push(Number(tareaId));
+          anotar(tareaId, p, 'creada', `encargada a ${nombre} (${rubro})`);
+        }
+        return nuevo;
+      });
+      return responder(201, { id: Number(personaId), token: tk, tareas: trabajos.length, ids: creadas });
+    }
+
     if (a === 'personas') {
       soloDireccion(p);
       if (m === 'GET' && !id) return responder(200, { personas: q.personas.all(p.obra_id) });
@@ -474,9 +587,13 @@ export function crearApp({ dirDatos, dirWeb }) {
         const c = await leerJson(req);
         if (!ROLES.includes(c.rol)) throw falla(400, 'Elegí un rol: propietario, arquitecto o constructor.');
         const tk = nuevoToken();
+        const ejecuta = c.rol === 'constructor';
         const nuevo = db
-          .prepare('INSERT INTO personas (obra_id, nombre, rol, token, creada) VALUES (?, ?, ?, ?, ?)')
-          .run(p.obra_id, texto(c.nombre, 60, { requerido: true, nombre: 'El nombre' }), c.rol, tk, ahora()).lastInsertRowid;
+          .prepare('INSERT INTO personas (obra_id, nombre, rol, rubro, limitado, token, creada) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(
+            p.obra_id, texto(c.nombre, 60, { requerido: true, nombre: 'El nombre' }), c.rol,
+            ejecuta ? texto(c.rubro, 40, { nombre: 'El rubro' }) : '', ejecuta && c.limitado ? 1 : 0, tk, ahora(),
+          ).lastInsertRowid;
         return responder(201, { id: Number(nuevo), token: tk });
       }
       if (m === 'PATCH' && id) {

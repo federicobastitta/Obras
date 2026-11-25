@@ -19,7 +19,7 @@ if (db.prepare('SELECT COUNT(*) AS n FROM obras').get().n === 0) {
   const base = (process.env.URL_BASE || `http://localhost:${puerto}`).replace(/\/$/, '');
   const creadas = lista.map((o) => {
     const tareas = o.tareas ? JSON.parse(fs.readFileSync(path.join(dirInicial, o.tareas), 'utf8')) : [];
-    return { nombre: o.nombre, cantidad: tareas.length, token: crearObra(db, { nombre: o.nombre, propietario, tareas }).token };
+    return { nombre: o.nombre, cantidad: tareas.length, token: crearObra(db, { nombre: o.nombre, tipo: o.tipo || '', propietario, tareas }).token };
   });
   const archivo = path.join(dirDatos, 'primer-acceso.txt');
   fs.writeFileSync(
@@ -28,6 +28,13 @@ if (db.prepare('SELECT COUNT(*) AS n FROM obras').get().n === 0) {
     { mode: 0o600 },
   );
   console.log(`Obras iniciales creadas: ${creadas.map((c) => `${c.nombre} (${c.cantidad} tareas)`).join(', ')}. Links en ${archivo}`);
+}
+
+// Las obras iniciales creadas antes de que existiera el tipo lo toman de datos-iniciales/obras.json (solo si está vacío).
+{
+  const lista = JSON.parse(fs.readFileSync(path.join(raiz, 'datos-iniciales', 'obras.json'), 'utf8'));
+  const poner = db.prepare("UPDATE obras SET tipo = ? WHERE nombre = ? AND tipo = ''");
+  for (const o of lista) if (o.tipo) poner.run(o.tipo, o.nombre);
 }
 
 servidor.listen(puerto, process.env.ESCUCHAR || '127.0.0.1', () => {
