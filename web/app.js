@@ -273,8 +273,10 @@ function pantallaIngreso(mensaje) {
     class: 'caja', id: 'entrar',
     onsubmit: (e) => {
       e.preventDefault();
-      const v = campo.value.trim();
-      const k = (v.match(/k=([0-9a-f]{20,}(?:,[0-9a-f]{20,})*)/i) || v.match(/^([0-9a-f]{20,})$/i) || [])[1];
+      let v = campo.value.trim();
+      try { v = decodeURIComponent(v); } catch {}
+      const codigos = (/k=/i.test(v) ? v.slice(v.search(/k=/i) + 2) : v).match(/[0-9a-f]{20,}/gi);
+      const k = codigos ? codigos.join(',') : '';
       if (!k) return avisar('Ese link no tiene un código de acceso.', true);
       history.replaceState(null, '', location.pathname + '#k=' + k);
       arrancar();
@@ -1562,9 +1564,16 @@ async function arrancar() {
     }
   }
   // El link puede traer un código o varios separados por coma (uno por obra): se abre la primera y se recuerdan todas.
-  const enLink = location.hash.match(/^#k=([0-9a-f]{20,}(?:,[0-9a-f]{20,})*)$/i);
+  // WhatsApp y algunos navegadores cambian la coma por %2C o le agregan algo al final: se toman los códigos que haya.
+  let hash = location.hash;
+  try { hash = decodeURIComponent(hash); } catch {}
+  const enLink = /^#k=/i.test(hash) ? hash.slice(3).match(/[0-9a-f]{20,}/gi) : null;
+  if (/^#k=/i.test(hash) && !enLink) {
+    history.replaceState(null, '', location.pathname);
+    return pantallaIngreso('El link llegó cortado. Pedí que te lo vuelvan a mandar, o pegalo completo acá.');
+  }
   if (enLink) {
-    const [primero, ...resto] = enLink[1].split(',');
+    const [primero, ...resto] = enLink;
     history.replaceState(null, '', location.pathname);
     for (const k of resto) {
       try {
@@ -1592,7 +1601,7 @@ async function arrancar() {
 }
 
 window.addEventListener('hashchange', () => {
-  if (/^#(k|entrar)=/.test(location.hash)) { yo = null; arrancar(); } else mostrar();
+  if (/^#(k|entrar)=/i.test(location.hash)) { yo = null; arrancar(); } else mostrar();
 });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 arrancar();
