@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crearApp } from '../servidor/app.js';
 import { crearObra } from '../servidor/db.js';
+import { asegurarDemo } from '../servidor/demo.js';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dirDatos = fs.mkdtempSync(path.join(os.tmpdir(), 'obras-'));
@@ -197,6 +198,24 @@ test('proveedores: entran con su link y ven solo el trabajo que se les encargó'
   assert.equal((await pedir(duena, 'POST', '/api/tareas', { texto: 'x', asignada_a: 999999 })).codigo, 400);
 });
 
+test('actividad: lo último que pasó, sin mezclar obras ni mostrar trabajos ajenos', async () => {
+  const todos = (await pedir(duena, 'GET', '/api/actividad')).datos.eventos;
+  assert.ok(todos.length > 5 && todos.length <= 30);
+  assert.deepEqual(todos.map((e) => e.fecha), todos.map((e) => e.fecha).sort().reverse(), 'del más nuevo al más viejo');
+  assert.ok(todos.every((e) => e.tarea && e.tipo));
+  assert.ok(todos.some((e) => e.persona === 'Dueña') && todos.some((e) => e.rol === 'constructor'));
+  // La obra ajena solo ve lo suyo.
+  const ajenos = (await pedir(otra.token, 'GET', '/api/actividad')).datos.eventos;
+  assert.ok(ajenos.every((e) => e.tarea === 'Ajena'));
+  // El proveedor solo ve eventos de las tareas que tiene encargadas.
+  const personas = (await pedir(duena, 'GET', '/api/personas')).datos.personas;
+  const pedro = personas.find((x) => x.rubro === 'Plomería');
+  const suyas = new Set((await pedir(pedro.token, 'GET', '/api/tareas')).datos.tareas.map((t) => t.texto));
+  const vistos = (await pedir(pedro.token, 'GET', '/api/actividad')).datos.eventos;
+  assert.ok(vistos.length > 0 && vistos.every((e) => suyas.has(e.tarea)));
+  assert.equal((await pedir('nada', 'GET', '/api/actividad')).codigo, 401);
+});
+
 test('obras nuevas: las crea quien dirige, y arrancan vacías y separadas', async () => {
   assert.equal((await pedir(constructor, 'POST', '/api/obras', { nombre: 'Quincho' })).codigo, 403);
   assert.equal((await pedir(duena, 'POST', '/api/obras', { nombre: '  ' })).codigo, 400);
@@ -300,4 +319,25 @@ test('demostración: se carga con todo completo, no toca lo real y se borra ente
   const restos = fs.readdirSync(path.join(dirDatos, 'fotos')).concat(fs.readdirSync(path.join(dirDatos, 'archivos')));
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM fotos').get().n, restos.length - fs.readdirSync(path.join(dirDatos, 'archivos')).length, 'no quedan fotos sueltas');
   assert.equal((await pedir(duena, 'POST', '/api/demo')).codigo, 201, 'se puede volver a cargar');
+});
+
+test('demostración con arquitecto propio: le pone el nombre y da un link que abre las dos obras', async () => {
+  const op = { dirFotos: path.join(dirDatos, 'fotos'), dirArchivos: path.join(dirDatos, 'archivos'), propietario: 'Dueña', urlBase: 'https://ejemplo.test/' };
+  const links = asegurarDemo(db, { ...op, arquitecto: 'Nazareno' });
+  const tokens = links.arquitecto.replace('https://ejemplo.test/#k=', '').split(',');
+  assert.equal(tokens.length, 2);
+  for (const [i, nombre] of ['Casa Los Álamos', 'Clínica Norte'].entries()) {
+    const yo = (await pedir(tokens[i], 'GET', '/api/yo')).datos;
+    assert.deepEqual([yo.persona.nombre, yo.persona.rol, yo.obra.nombre, yo.obra.demo], ['Nazareno', 'arquitecto', nombre, true]);
+  }
+  // Como arquitecto ve todo y puede aprobar.
+  const d = (await pedir(tokens[0], 'GET', '/api/tareas')).datos;
+  assert.ok(d.tareas.length >= 20);
+  const aAprobar = d.tareas.find((t) => !t.grupo_id && t.estado === 'presupuestada');
+  assert.equal((await pedir(tokens[0], 'POST', `/api/tareas/${aAprobar.id}/accion`, { accion: 'aprobar' })).codigo, 200);
+  assert.equal(links.propietario.split(',').length, 2);
+  // Repetirlo no duplica nada y mantiene los mismos links.
+  const antes = db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n;
+  assert.deepEqual(asegurarDemo(db, { ...op, arquitecto: 'Nazareno' }), links);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n, antes);
 });

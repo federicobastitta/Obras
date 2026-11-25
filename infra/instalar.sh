@@ -64,6 +64,17 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 [ "$LISTO" = "1" ] || { echo "== El servicio no respondió."; journalctl -u obras -n 20 --no-pager || true; exit 1; }
 
+# Demostración: si el repo trae datos-iniciales/demo.json, deja cargadas las obras de ejemplo con ese arquitecto.
+# Corre como el usuario de la app, para que la base y las fotos queden a su nombre. Si falla, la instalación sigue.
+if [ -f datos-iniciales/demo.json ]; then
+  echo "== Demostración"
+  (
+    set -a; . /etc/obras/obras.env; set +a
+    runuser -u obras -- env URL_BASE="${URL_BASE:-}" PROPIETARIO="${PROPIETARIO:-}" DIR_DATOS=/var/lib/obras \
+      "$NODE" --disable-warning=ExperimentalWarning servidor/demo-cli.js
+  ) || echo "== AVISO: no se pudo preparar la demostración."
+fi
+
 if [ -z "$DOMINIO" ]; then
   echo "== Sin DOMINIO: la app quedó andando solo dentro del servidor (puerto $PUERTO), sin dirección web."
   echo "== Listo: $(git rev-parse --short HEAD)"

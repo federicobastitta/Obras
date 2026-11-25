@@ -1121,7 +1121,7 @@ async function vistaInicio() {
   const limite = enDias(7);
   const fichas = await Promise.all(lista.map(async (x) => {
     try {
-      const [quien, datos, ultimas] = await Promise.all([pedirCon(x.token, 'GET', '/yo'), pedirCon(x.token, 'GET', '/tareas'), pedirCon(x.token, 'GET', '/fotos').catch(() => ({ fotos: [] }))]);
+      const [quien, datos, ultimas, hechos] = await Promise.all([pedirCon(x.token, 'GET', '/yo'), pedirCon(x.token, 'GET', '/tareas'), pedirCon(x.token, 'GET', '/fotos').catch(() => ({ fotos: [] })), pedirCon(x.token, 'GET', '/actividad').catch(() => ({ eventos: [] }))]);
       const ts = datos.tareas;
       const rol = quien.persona.rol;
       const saldos = {};
@@ -1135,6 +1135,7 @@ async function vistaInicio() {
         vencidas: ts.filter(vencida).length,
         saldos,
         fotos: (ultimas.fotos || []).map((f) => ({ ...f, token: x.token, obra: quien.obra.nombre })),
+        actividad: (hechos.eventos || []).map((e) => ({ ...e, token: x.token, obra: quien.obra.nombre })),
         // Presupuestos que esperan la aprobación de quien dirige la obra: grupos y tareas sueltas.
         aAprobar: rol === 'constructor' ? [] : [
           ...(datos.grupos || []).filter((g) => g.estado === 'presupuestado').map((g) => ({
@@ -1151,7 +1152,7 @@ async function vistaInicio() {
           .map((t) => ({ token: x.token, obra: quien.obra.nombre, id: t.id, texto: t.texto, plazo: t.plazo, quien: t.asignada_nombre || '' })),
       };
     } catch {
-      return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {}, porVencer: [], aAprobar: [], fotos: [] };
+      return { token: x.token, obra: { nombre: x.obra, tipo: x.tipo || '' }, persona: x, rol: x.rol, error: true, total: 0, hechas: 0, tocan: 0, vencidas: 0, saldos: {}, porVencer: [], aAprobar: [], fotos: [], actividad: [] };
     }
   }));
   guardarAccesos(lista.map((x) => { const f = fichas.find((y) => y.token === x.token); return f && !f.error ? { ...x, obra: f.obra.nombre, tipo: f.obra.tipo || '' } : x; }));
@@ -1374,6 +1375,55 @@ async function vistaInicio() {
       : h('p', { class: 'vacio' }, 'No hay presupuestos esperando tu aprobación.'),
   ];
 
+  // ----- última actividad -----
+  const haceCuanto = (iso) => {
+    const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+    if (min < 1) return 'ahora';
+    if (min < 60) return `hace ${min} min`;
+    const horas = Math.round(min / 60);
+    if (horas < 24) return `hace ${horas} h`;
+    const dias = Math.round(horas / 24);
+    if (dias === 1) return 'ayer';
+    return dias < 7 ? `hace ${dias} días` : dia(iso);
+  };
+  // Los movimientos seguidos de la misma persona, del mismo tipo y en la misma obra se juntan en uno
+  // («Federico cargó 21 tareas»), así una carga grande no tapa todo lo demás.
+  const PLURAL = {
+    creada: (n) => `cargó ${n} tareas`, editada: (n) => `cambió ${n} tareas`, presupuestada: (n) => `cargó ${n} presupuestos`,
+    aprobada: (n) => `aprobó ${n} presupuestos`, rechazada: (n) => `rechazó ${n} presupuestos`, realizada: (n) => `marcó ${n} tareas como realizadas`,
+    verificada: (n) => `verificó ${n} tareas`, devuelta: (n) => `devolvió ${n} tareas`, comentario: (n) => `hizo ${n} comentarios`,
+    foto: (n) => `subió ${n} fotos`, archivo: (n) => `subió ${n} archivos`, pago: (n) => `registró ${n} pagos`,
+  };
+  const juntar = [];
+  for (const e of fichas.flatMap((f) => f.actividad).sort((a, b) => b.fecha.localeCompare(a.fecha))) {
+    const deGrupo = /grupo «/.test(e.detalle || '');
+    const clave = [e.token, e.persona, e.tipo, deGrupo ? e.detalle : ''].join('|');
+    const ult = juntar[juntar.length - 1];
+    if (ult && ult.clave === clave && Date.parse(ult.masVieja) - Date.parse(e.fecha) < 15 * 60000) { ult.n += 1; ult.masVieja = e.fecha; }
+    else juntar.push({ ...e, clave, deGrupo, n: 1, masVieja: e.fecha });
+  }
+  const movimientos = juntar.slice(0, 8);
+  const cajaActividad = [
+    h('h2', { class: 'grupo' }, 'Última actividad', h('small', null, movimientos.length ? 'Lo último que pasó en tus obras' : '')),
+    movimientos.length
+      ? h('ul', { class: 'lista' }, movimientos.map((x) => {
+        const varios = x.n > 1 && !x.deGrupo;
+        const verbo = varios ? (PLURAL[x.tipo] ? PLURAL[x.tipo](x.n) : `${EVENTOS[x.tipo] || x.tipo} (${x.n} veces)`) : EVENTOS[x.tipo] || x.tipo;
+        const titulo = x.n > 1 ? `${x.tarea} y ${x.n - 1} más` : x.tarea;
+        return h('li', null, h('button', {
+          class: 'renglon actividad', type: 'button',
+          onclick: () => cambiarDeObra(x.token, varios ? 'tareas' : 'tarea/' + x.tarea_id),
+        },
+          h('span', { class: 'avatar', 'aria-hidden': 'true' }, iniciales(x.persona || '?')),
+          h('span', { class: 'cuerpo' },
+            h('span', null, h('strong', null, x.persona || 'Alguien'), ' ', verbo),
+            h('span', { class: 'texto' }, titulo),
+            x.detalle && !varios ? h('span', { class: 'cita' }, detalleLegible(x)) : null,
+            h('span', { class: 'datos' }, h('span', null, x.obra), h('span', null, haceCuanto(x.fecha))))));
+      }))
+      : h('p', { class: 'vacio' }, 'Todavía no hay movimientos. Acá aparece lo que cargan, cotizan, aprueban y suben en tus obras.'),
+  ];
+
   // ----- próximos vencimientos -----
   const vencimientos = fichas.flatMap((f) => f.porVencer).sort((a, b) => a.plazo.localeCompare(b.plazo));
   const cuando = (plazo) => {
@@ -1438,6 +1488,7 @@ async function vistaInicio() {
       accion('Sumar proveedor con un link', 'Con el link que te pasaron', sumarConLink)),
     ...cajaAprobar,
     ...cajaVencimientos,
+    ...cajaActividad,
     h('h2', { class: 'grupo' }, fichas.length === 1 ? 'Tu obra' : 'Tus obras', h('small', null, 'Tocá una para abrirla')),
     h('div', { class: 'cuadros obras' }, cuadrosDeObra),
     ...cajaFotos,

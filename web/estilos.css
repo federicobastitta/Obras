@@ -335,3 +335,11 @@ main.inicio { gap: 40px; padding-top: 32px; }
   th:first-child, td:first-child { grid-column: 1 / -1; font-weight: 500; padding-bottom: 4px; }
   td[data-et]::before, th[data-et]::before { content: attr(data-et); display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
 }
+
+/* última actividad */
+.lista button.renglon.actividad { display: flex; align-items: flex-start; gap: 12px; }
+.actividad .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent-tint); color: var(--accent); font-size: 12px; font-weight: 600; display: grid; place-items: center; flex: none; margin-top: 1px; }
+.actividad .cuerpo { flex: 1; }
+.actividad .cuerpo > span { min-width: 0; }
+.actividad .texto { font-weight: 500; }
+.actividad .cita { color: var(--text-2); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
