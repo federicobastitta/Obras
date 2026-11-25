@@ -36,7 +36,10 @@ Estados de una tarea: sin presupuesto → presupuesto a aprobar → aprobada →
   blancas sobre gris frío, líneas finas, un azul marino de marca, el color solo para el estado (punto y palabra) e íconos de
   línea. Tipografía Inter incluida en `web/fuentes/` (licencia OFL), así la app no depende de ningún sitio externo.
 - `pruebas/`: pruebas del servidor (`npm test`).
-- `datos-iniciales/obras.json`: las obras con las que arranca (Casa con sus tareas de `casa.json`, y las sedes, vacías).
+- `datos-iniciales/obras.json`: las obras con las que arranca una base vacía (hoy, una sola obra sin tareas).
+- `datos-iniciales/reinicio.txt`: identificador de reinicio. Cuando cambia, el instalador aparta los datos a un respaldo
+  con fecha y la app arranca de cero, una sola vez por identificador.
+- `datos-iniciales/demo.json` (opcional): si existe, el instalador deja cargada la demostración con ese arquitecto.
 
 ## Correrla
 

@@ -52,6 +52,22 @@ install -d -m 755 /etc/obras
   true
 } > /etc/obras/obras.env
 
+# Reinicio de datos, una sola vez por cada identificador de datos-iniciales/reinicio.txt (pedido expreso del dueño).
+# No borra: aparta la carpeta de datos entera a un respaldo con fecha y la app arranca de cero.
+if [ -f datos-iniciales/reinicio.txt ]; then
+  REINICIO="$(tr -dc 'A-Za-z0-9-' < datos-iniciales/reinicio.txt | head -c 60)"
+  if [ -n "$REINICIO" ] && ! grep -qsx "$REINICIO" /var/lib/obras-reinicios.txt; then
+    echo "== Reinicio de datos ($REINICIO)"
+    systemctl stop obras 2> /dev/null || true
+    RESPALDO="/var/lib/obras-respaldo-$(date +%Y%m%d-%H%M%S)"
+    mv /var/lib/obras "$RESPALDO"
+    chmod 700 "$RESPALDO"
+    install -d -o obras -g obras -m 750 /var/lib/obras
+    echo "$REINICIO" >> /var/lib/obras-reinicios.txt
+    echo "   Los datos anteriores quedaron apartados en $RESPALDO"
+  fi
+fi
+
 echo "== Servicio"
 install -m 644 infra/obras.service /etc/systemd/system/obras.service
 systemctl daemon-reload
