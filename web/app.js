@@ -7,6 +7,7 @@ let token = null;
 let yo = null;
 let obra = null;
 let tareas = [];
+let grupos = [];
 let filtro = null;
 let urlsDeFotos = [];
 
@@ -18,6 +19,19 @@ const ESTADOS = {
   verificada: ['Terminada', 'ok'],
   devuelta: ['Devuelta', 'mal'],
 };
+const ESTADOS_PRESUPUESTO = {
+  sin: ['Sin presupuesto', 'pend'],
+  presupuestado: ['A aprobar', 'info'],
+  aprobado: ['Aprobado', 'ok'],
+  rechazado: ['Rechazado', 'mal'],
+};
+/** Estado del presupuesto de una tarea suelta (las que están en grupo usan el estado del grupo). */
+function estadoPresupuesto(t) {
+  if (t.estado === 'presupuestada') return 'presupuestado';
+  if (t.monto == null) return 'sin';
+  return t.estado === 'pendiente' ? 'rechazado' : 'aprobado';
+}
+const chipPresupuesto = (estado) => h('span', { class: 'chip ' + ESTADOS_PRESUPUESTO[estado][1] }, ESTADOS_PRESUPUESTO[estado][0]);
 const ROLES = { propietario: 'Propietario', arquitecto: 'Arquitecto', constructor: 'Constructor' };
 const EVENTOS = {
   creada: 'cargó la tarea',
@@ -28,6 +42,7 @@ const EVENTOS = {
   realizada: 'la marcó como realizada',
   verificada: 'la verificó',
   devuelta: 'la devolvió',
+  desagrupada: 'la sacó del grupo',
   comentario: 'comentó',
   foto: 'subió una foto',
   foto_borrada: 'borró una foto',
@@ -217,6 +232,7 @@ function marco(actual, ...contenido) {
       ),
       h('nav', { class: 'pestanas' },
         pestana('', 'Tareas'),
+        pestana('presupuestos', 'Presupuestos'),
         pestana('resumen', 'Resumen'),
         esDireccion() ? pestana('personas', 'Personas') : null,
         pestana('obras', 'Obras'),
@@ -227,7 +243,9 @@ function marco(actual, ...contenido) {
 }
 
 async function cargarTareas() {
-  tareas = (await api('GET', '/tareas')).tareas;
+  const d = await api('GET', '/tareas');
+  tareas = d.tareas;
+  grupos = d.grupos || [];
 }
 
 // ---------- lista ----------
@@ -280,11 +298,11 @@ async function vistaLista() {
       h('button', { type: 'button', 'aria-pressed': String(filtro === clave), onclick: () => { filtro = clave; vistaLista(); } }, `${nombre} ${lista.length}`)),
   );
 
-  const grupos = new Map();
+  const porLugar = new Map();
   for (const t of ver) {
     const k = t.lugar || 'Sin lugar';
-    if (!grupos.has(k)) grupos.set(k, []);
-    grupos.get(k).push(t);
+    if (!porLugar.has(k)) porLugar.set(k, []);
+    porLugar.get(k).push(t);
   }
   const cuerpo = [];
   if (!ver.length) {
@@ -296,7 +314,7 @@ async function vistaLista() {
     };
     cuerpo.push(h('p', { class: 'vacio' }, vacios[filtro]));
   }
-  for (const [lugar, lista] of grupos) {
+  for (const [lugar, lista] of porLugar) {
     cuerpo.push(h('h2', { class: 'grupo' }, lugar, h('small', null, `${lista.length} ${lista.length === 1 ? 'tarea' : 'tareas'}`)));
     cuerpo.push(h('ul', { class: 'lista' }, lista.map((t) =>
       h('li', { class: terminada(t) ? 'terminada' : null },
@@ -305,8 +323,9 @@ async function vistaLista() {
           h('span', { class: 'datos' },
             chipEstado(t),
             t.prioridad === 'alta' && !terminada(t) ? h('span', { class: 'chip mal' }, 'Prioridad alta') : null,
+            t.grupo_id ? h('span', { class: 'chip' }, 'Grupo: ' + (grupos.find((g) => g.id === t.grupo_id)?.nombre || '')) : null,
             t.monto != null ? h('span', null, plata(t.monto, t.moneda)) : null,
-            t.plazo ? h('span', { class: vencida(t) ? 'vencida' : null }, (vencida(t) ? 'Venció el ' : 'Plazo ') + dia(t.plazo)) : null,
+            t.plazo ? h('span', { class: vencida(t) ? 'vencida' : null }, (vencida(t) ? 'Venció el ' : 'Entrega ') + dia(t.plazo)) : null,
             t.fotos ? h('span', null, `${t.fotos} ${t.fotos === 1 ? 'foto' : 'fotos'}`) : null,
             t.comentarios ? h('span', null, `${t.comentarios} ${t.comentarios === 1 ? 'comentario' : 'comentarios'}`) : null,
           ),
@@ -318,7 +337,7 @@ async function vistaLista() {
 
 // ---------- detalle ----------
 async function vistaTarea(id) {
-  const { tarea: t, eventos, fotos, pagos } = await api('GET', '/tareas/' + id);
+  const { tarea: t, grupo, eventos, fotos } = await api('GET', '/tareas/' + id);
   const recargar = () => vistaTarea(id);
   const accion = (control, cuerpo, hecho) => hacer(control, () => api('POST', `/tareas/${id}/accion`, cuerpo), hecho).then((ok) => ok && recargar());
 
@@ -339,47 +358,21 @@ async function vistaTarea(id) {
     return [boton, form];
   }
 
-  // Presupuesto
-  const presupuesto = h('section', { class: 'caja' }, h('h2', null, 'Presupuesto y plazo'));
-  if (t.monto != null) {
+  // Presupuesto y entrega: acá va el resumen; lo cargado se ve en la ventana de presupuesto.
+  const presupuesto = h('section', { class: 'caja' }, h('h2', null, 'Presupuesto y entrega'));
+  const origen = grupo || (t.monto != null ? t : null);
+  if (origen) {
     presupuesto.append(
-      h('p', { class: 'grande' }, plata(t.monto, t.moneda)),
-      h('p', { class: 'sub' },
-        h('span', { class: vencida(t) ? 'vencida' : null }, (vencida(t) ? 'El plazo venció el ' : 'Plazo probable: ') + dia(t.plazo)),
-        t.estado === 'presupuestada' ? ' · falta aprobar' : t.aprobada_en ? ` · aprobado el ${dia(t.aprobada_en)}` : ''),
-      t.presupuesto_nota ? h('p', { class: 'texto' }, t.presupuesto_nota) : null,
+      grupo ? h('p', { class: 'sub' }, `Presupuestada junto con otras tareas, en el grupo «${grupo.nombre}»`) : null,
+      h('div', { class: 'fila' }, h('span', { class: 'grande' }, plata(origen.monto, origen.moneda)), chipPresupuesto(grupo ? grupo.estado : estadoPresupuesto(t))),
+      h('p', { class: 'sub' }, h('span', { class: vencida(t) ? 'vencida' : null }, 'Fecha de entrega: ' + dia(origen.plazo))),
+      h('div', { class: 'fila' },
+        h('button', { type: 'button', onclick: () => abrirPresupuesto(grupo ? { grupo: grupo.id } : { tarea: t.id }, recargar) }, 'Ver presupuesto')),
     );
   } else {
-    presupuesto.append(h('p', { class: 'sub' }, esConstructor() ? 'Todavía no cargaste el presupuesto.' : 'El constructor todavía no cargó el presupuesto.'));
-  }
-  if (t.estado === 'pendiente' && t.motivo) presupuesto.append(h('p', { class: 'nota' }, 'Presupuesto rechazado: ' + t.motivo));
-  if (esConstructor() && ['pendiente', 'presupuestada'].includes(t.estado)) {
-    const monto = h('input', { id: 'p-monto', type: 'number', inputmode: 'numeric', min: 0, step: 1, required: true, value: t.monto ?? '' });
-    const moneda = h('select', { id: 'p-moneda' }, h('option', { value: 'ARS' }, 'Pesos'), h('option', { value: 'USD' }, 'Dólares'));
-    moneda.value = t.moneda;
-    const plazo = h('input', { id: 'p-plazo', type: 'date', required: true, value: t.plazo ?? '' });
-    const nota = h('input', { id: 'p-nota', type: 'text', maxlength: 500, placeholder: 'Qué incluye: materiales, mano de obra…', value: t.presupuesto_nota });
-    presupuesto.append(h('form', {
-      class: 'rejilla',
-      onsubmit: (e) => {
-        e.preventDefault();
-        accion(e.submitter, { accion: 'presupuestar', monto: Number(monto.value), moneda: moneda.value, plazo: plazo.value, nota: nota.value }, 'Presupuesto enviado.');
-      },
-    },
-      h('label', { for: 'p-monto' }, 'Monto, sin centavos', monto),
-      h('label', { for: 'p-moneda' }, 'Moneda', moneda),
-      h('label', { for: 'p-plazo' }, 'Plazo probable', plazo),
-      h('label', { for: 'p-nota' }, 'Nota', nota),
-      h('button', { class: 'principal ancho', type: 'submit' }, t.monto != null ? 'Cambiar presupuesto' : 'Enviar presupuesto'),
-    ));
-  }
-  if (esDireccion() && t.estado === 'presupuestada') {
-    const [rechazar, formRechazo] = conMotivo('Rechazar', 'rechazar', 'Presupuesto rechazado.');
     presupuesto.append(
-      h('div', { class: 'fila' },
-        h('button', { class: 'bien', type: 'button', onclick: (e) => accion(e.currentTarget, { accion: 'aprobar' }, 'Presupuesto aprobado.') }, 'Aprobar presupuesto'),
-        rechazar),
-      formRechazo,
+      h('p', { class: 'sub' }, esConstructor() ? 'Todavía no cargaste el presupuesto.' : 'El constructor todavía no cargó el presupuesto.'),
+      esConstructor() && t.estado === 'pendiente' ? h('div', { class: 'fila' }, h('a', { class: 'boton', href: '#/presupuestos' }, 'Ir a la hoja de presupuestos')) : null,
     );
   }
 
@@ -408,41 +401,6 @@ async function vistaTarea(id) {
       formDevolver = f;
     }
     avance.append(h('div', { class: 'fila' }, botones), formDevolver);
-  }
-
-  // Pagos
-  const pagado = pagos.reduce((s, g) => s + g.monto, 0);
-  const cajaPagos = h('section', { class: 'caja' },
-    h('h2', null, 'Pagos'),
-    h('p', { class: 'sub' },
-      pagos.length ? `Pagado: ${plata(pagado, t.moneda)}` : 'Sin pagos registrados.',
-      t.monto != null && pagos.length ? ` · Saldo: ${plata(t.monto - pagado, t.moneda)}` : ''),
-    pagos.length ? h('ul', { class: 'historial' }, pagos.map((g) =>
-      h('li', null,
-        h('span', { class: 'fila entre' },
-          h('strong', null, plata(g.monto, t.moneda)),
-          esDireccion() ? h('button', { class: 'chico peligro', type: 'button', onclick: (e) => hacer(e.currentTarget, () => api('DELETE', `/tareas/${id}/pagos/${g.id}`), 'Pago borrado.').then((ok) => ok && recargar()) }, 'Borrar') : null),
-        h('span', { class: 'cuando' }, `${dia(g.fecha)} · lo registró ${g.persona || 'alguien'}`),
-        g.nota ? h('span', { class: 'dicho' }, g.nota) : null))) : null,
-  );
-  if (esDireccion()) {
-    const monto = h('input', { id: 'g-monto', type: 'number', inputmode: 'numeric', min: 1, step: 1, required: true });
-    const fecha = h('input', { id: 'g-fecha', type: 'date', required: true, value: hoy() });
-    const nota = h('input', { id: 'g-nota', type: 'text', maxlength: 300, placeholder: 'Anticipo, transferencia, efectivo…' });
-    cajaPagos.append(h('details', null,
-      h('summary', null, 'Registrar un pago'),
-      h('form', {
-        class: 'rejilla',
-        onsubmit: async (e) => {
-          e.preventDefault();
-          const ok = await hacer(e.submitter, () => api('POST', `/tareas/${id}/pagos`, { monto: Number(monto.value), fecha: fecha.value, nota: nota.value }), 'Pago registrado.');
-          if (ok) recargar();
-        },
-      },
-        h('label', { for: 'g-monto' }, `Monto en ${t.moneda === 'USD' ? 'dólares' : 'pesos'}`, monto),
-        h('label', { for: 'g-fecha' }, 'Fecha', fecha),
-        h('label', { class: 'ancho', for: 'g-nota' }, 'Nota', nota),
-        h('button', { class: 'principal ancho', type: 'submit' }, 'Guardar pago'))));
   }
 
   // Fotos
@@ -537,7 +495,7 @@ async function vistaTarea(id) {
         chipEstado(t),
         t.prioridad !== 'media' ? h('span', { class: 'chip' + (t.prioridad === 'alta' ? ' mal' : '') }, 'Prioridad ' + t.prioridad) : null,
         h('span', null, 'Cargada el ' + dia(t.creada)))),
-    presupuesto, avance, cajaPagos, cajaFotos, cajaHistorial, edicion,
+    presupuesto, avance, cajaFotos, cajaHistorial, edicion,
   );
 }
 
@@ -581,32 +539,38 @@ async function vistaResumen() {
         h('div', null, h('strong', { class: cuenta(vencida) ? 'vencida' : null }, cuenta(vencida)), h('span', { class: 'sub' }, 'Con plazo vencido')))),
   ];
 
+  const yaAprobada = (t) => ['aprobada', 'realizada', 'verificada', 'devuelta'].includes(t.estado);
+  const renglones = [
+    ...tareas.filter((t) => !t.grupo_id && (t.monto != null || t.pagado > 0)).map((t) => ({
+      donde: t.lugar || 'Sin lugar', moneda: t.moneda, pagado: t.pagado,
+      monto: estadoPresupuesto(t) === 'rechazado' ? 0 : t.monto || 0, aprobado: yaAprobada(t) ? t.monto || 0 : 0,
+    })),
+    ...grupos.map((g) => ({
+      donde: 'Grupo: ' + g.nombre, moneda: g.moneda, pagado: g.pagado,
+      monto: g.estado === 'rechazado' ? 0 : g.monto, aprobado: g.estado === 'aprobado' ? g.monto : 0,
+    })),
+  ];
   for (const moneda of ['ARS', 'USD']) {
-    const con = tareas.filter((t) => t.moneda === moneda && (t.monto != null || t.pagado > 0));
+    const con = renglones.filter((r) => r.moneda === moneda);
     if (!con.length) continue;
-    const aprobadas = (t) => ['aprobada', 'realizada', 'verificada', 'devuelta'].includes(t.estado);
-    const suma = (lista, f) => lista.reduce((s, t) => s + (f(t) || 0), 0);
+    const suma = (lista, campo) => lista.reduce((n, r) => n + r[campo], 0);
     const filas = new Map();
-    for (const t of con) {
-      const k = t.lugar || 'Sin lugar';
-      if (!filas.has(k)) filas.set(k, []);
-      filas.get(k).push(t);
+    for (const r of con) {
+      if (!filas.has(r.donde)) filas.set(r.donde, []);
+      filas.get(r.donde).push(r);
     }
-    const fila = (nombre, lista, etiqueta = 'td') => {
-      const aprobado = suma(lista.filter(aprobadas), (t) => t.monto);
-      const pagado = suma(lista, (t) => t.pagado);
-      return h('tr', null,
+    const fila = (nombre, lista, etiqueta = 'td') =>
+      h('tr', null,
         h(etiqueta === 'th' ? 'th' : 'td', null, nombre),
-        h(etiqueta, null, numero.format(suma(lista, (t) => t.monto))),
-        h(etiqueta, null, numero.format(aprobado)),
-        h(etiqueta, null, numero.format(pagado)),
-        h(etiqueta, null, numero.format(aprobado - pagado)));
-    };
+        h(etiqueta, null, numero.format(suma(lista, 'monto'))),
+        h(etiqueta, null, numero.format(suma(lista, 'aprobado'))),
+        h(etiqueta, null, numero.format(suma(lista, 'pagado'))),
+        h(etiqueta, null, numero.format(suma(lista, 'aprobado') - suma(lista, 'pagado'))));
     cajas.push(h('section', { class: 'caja' },
       h('h2', null, moneda === 'USD' ? 'Plata en dólares' : 'Plata en pesos'),
       h('div', { class: 'tabla' },
         h('table', null,
-          h('thead', null, h('tr', null, ['Lugar', 'Presupuestado', 'Aprobado', 'Pagado', 'Saldo'].map((x) => h('th', null, x)))),
+          h('thead', null, h('tr', null, ['Lugar o grupo', 'Presupuestado', 'Aprobado', 'Pagado', 'Saldo'].map((x) => h('th', null, x)))),
           h('tbody', null, [...filas].map(([k, lista]) => fila(k, lista))),
           h('tfoot', null, fila('Total', con, 'th')))),
       h('p', { class: 'sub' }, 'Saldo = aprobado menos pagado.')));
@@ -665,6 +629,223 @@ async function vistaPersonas() {
   );
 }
 
+// ---------- hoja de presupuestos ----------
+async function vistaPresupuestos() {
+  await cargarTareas();
+  const recargar = () => vistaPresupuestos();
+  const cajas = [];
+
+  if (esConstructor()) {
+    const sinPrecio = tareas.filter((t) => !t.grupo_id && t.estado === 'pendiente');
+    const elegidas = new Set();
+    const monto = h('input', { id: 'h-monto', type: 'number', inputmode: 'numeric', min: 0, step: 1, required: true });
+    const moneda = h('select', { id: 'h-moneda' }, h('option', { value: 'ARS' }, 'Pesos'), h('option', { value: 'USD' }, 'Dólares'));
+    const plazo = h('input', { id: 'h-plazo', type: 'date', required: true });
+    const nota = h('input', { id: 'h-nota', type: 'text', maxlength: 500, placeholder: 'Qué incluye: materiales, mano de obra…' });
+    const nombre = h('input', { id: 'h-nombre', type: 'text', maxlength: 80, placeholder: 'Baños, electricidad de galería…' });
+    const campoNombre = h('label', { class: 'ancho', for: 'h-nombre', hidden: true }, 'Nombre del grupo', nombre);
+    const enviar = h('button', { class: 'principal ancho', type: 'submit', disabled: true }, 'Elegí una o más tareas');
+    const actualizar = () => {
+      const n = elegidas.size;
+      campoNombre.hidden = n < 2;
+      enviar.disabled = n === 0;
+      enviar.textContent = n === 0 ? 'Elegí una o más tareas' : n === 1 ? 'Presupuestar esta tarea' : `Presupuestar las ${n} tareas juntas`;
+    };
+    cajas.push(h('form', {
+      class: 'caja',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const datos = { monto: Number(monto.value), moneda: moneda.value, plazo: plazo.value, nota: nota.value };
+        const ids = [...elegidas];
+        const ok = await hacer(enviar, () => (ids.length === 1
+          ? api('POST', `/tareas/${ids[0]}/accion`, { accion: 'presupuestar', ...datos })
+          : api('POST', '/grupos', { ...datos, nombre: nombre.value, tareas: ids })), 'Presupuesto enviado.');
+        if (ok) recargar();
+      },
+    },
+      h('h2', null, 'Cargar un presupuesto'),
+      sinPrecio.length
+        ? h('p', { class: 'sub' }, 'Marcá una tarea para presupuestarla sola, o varias para ponerles un solo precio y una sola fecha de entrega.')
+        : h('p', { class: 'sub' }, 'No hay tareas esperando presupuesto.'),
+      sinPrecio.length ? h('ul', { class: 'lista' }, sinPrecio.map((t) =>
+        h('li', null, h('label', { class: 'elegir', for: 'h-t' + t.id },
+          h('input', {
+            id: 'h-t' + t.id, type: 'checkbox',
+            onchange: (e) => { if (e.target.checked) elegidas.add(t.id); else elegidas.delete(t.id); actualizar(); },
+          }),
+          h('span', { class: 'cuerpo' },
+            h('span', { class: 'texto' }, t.texto),
+            h('span', { class: 'datos' }, h('span', null, t.lugar || 'Sin lugar'), t.motivo ? h('span', { class: 'chip mal' }, 'Presupuesto rechazado') : null)))))) : null,
+      sinPrecio.length ? h('div', { class: 'rejilla' },
+        campoNombre,
+        h('label', { for: 'h-monto' }, 'Monto total, sin centavos', monto),
+        h('label', { for: 'h-moneda' }, 'Moneda', moneda),
+        h('label', { for: 'h-plazo' }, 'Fecha de entrega', plazo),
+        h('label', { for: 'h-nota' }, 'Nota', nota),
+        enviar) : null,
+    ));
+  }
+
+  // Presupuestos cargados: primero los que esperan respuesta.
+  const cargados = [
+    ...grupos.map((g) => ({ ref: { grupo: g.id }, titulo: g.nombre, sub: `Grupo de ${g.cantidad} ${g.cantidad === 1 ? 'tarea' : 'tareas'}`, estado: g.estado, monto: g.monto, moneda: g.moneda, plazo: g.plazo, pagado: g.pagado })),
+    ...tareas.filter((t) => !t.grupo_id && t.monto != null).map((t) => ({ ref: { tarea: t.id }, titulo: t.texto, sub: t.lugar || 'Sin lugar', estado: estadoPresupuesto(t), monto: t.monto, moneda: t.moneda, plazo: t.plazo, pagado: t.pagado })),
+  ];
+  const orden = { presupuestado: 0, rechazado: 1, aprobado: 2 };
+  cargados.sort((a, b) => orden[a.estado] - orden[b.estado]);
+  cajas.push(h('h2', { class: 'grupo' }, 'Presupuestos cargados', h('small', null, String(cargados.length))));
+  cajas.push(cargados.length
+    ? h('ul', { class: 'lista' }, cargados.map((c) =>
+      h('li', null, h('button', { class: 'renglon', type: 'button', onclick: () => abrirPresupuesto(c.ref, recargar) },
+        h('span', { class: 'texto' }, c.titulo),
+        h('span', { class: 'datos' },
+          chipPresupuesto(c.estado),
+          h('strong', null, plata(c.monto, c.moneda)),
+          h('span', null, 'Entrega ' + dia(c.plazo)),
+          h('span', null, c.sub),
+          c.pagado ? h('span', null, 'Pagado ' + plata(c.pagado, c.moneda)) : null)))))
+    : h('p', { class: 'vacio' }, 'Todavía no hay presupuestos cargados.'));
+  marco('presupuestos', ...cajas);
+}
+
+/** Botón que primero pide un motivo y después llama a enviar(motivo, boton). */
+function pedirMotivo(etiqueta, idCampo, enviar) {
+  const campo = h('textarea', { id: idCampo, maxlength: 500, required: true });
+  const form = h('form', { class: 'caja', hidden: true, onsubmit: (e) => { e.preventDefault(); enviar(campo.value, e.submitter); } },
+    h('label', { for: idCampo }, 'Motivo', campo),
+    h('div', { class: 'fila' },
+      h('button', { class: 'peligro', type: 'submit' }, etiqueta),
+      h('button', { type: 'button', onclick: () => { form.hidden = true; boton.hidden = false; } }, 'Cancelar')));
+  const boton = h('button', { class: 'peligro', type: 'button', onclick: () => { form.hidden = false; boton.hidden = true; campo.focus(); } }, etiqueta);
+  return [boton, form];
+}
+
+/** Ventana con lo cargado de un presupuesto (de una tarea o de un grupo): monto, fecha de entrega, estado y pagos. */
+async function abrirPresupuesto(ref, alCambiar) {
+  let cambio = false;
+  const ventana = h('div', { class: 'ventana', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Presupuesto' });
+  const fondo = h('div', { class: 'fondo', onclick: (e) => { if (e.target === fondo) cerrar(); } }, ventana);
+  function cerrar() {
+    fondo.remove();
+    if (cambio && alCambiar) alCambiar();
+  }
+
+  async function pintar() {
+    let d;
+    try {
+      d = ref.grupo ? await api('GET', '/grupos/' + ref.grupo) : await api('GET', '/tareas/' + ref.tarea);
+      if (!ref.grupo && d.grupo) {
+        ref = { grupo: d.grupo.id };
+        d = await api('GET', '/grupos/' + ref.grupo);
+      }
+    } catch (e) {
+      avisar(e.message, true);
+      return false;
+    }
+    const esGrupo = !!ref.grupo;
+    const x = esGrupo ? d.grupo : d.tarea;
+    const base = esGrupo ? '/grupos/' + x.id : '/tareas/' + x.id;
+    const estado = esGrupo ? x.estado : estadoPresupuesto(x);
+    const nota = esGrupo ? x.nota : x.presupuesto_nota;
+    const pagado = d.pagos.reduce((n, g) => n + g.monto, 0);
+    const tras = (ok) => { if (ok) { cambio = true; pintar(); } };
+    const mandar = (control, metodo, ruta, cuerpo, hecho) => hacer(control, () => api(metodo, ruta, cuerpo), hecho).then(tras);
+
+    const partes = [
+      h('div', { class: 'fila entre' },
+        h('p', { class: 'sub' }, esGrupo ? `Presupuesto en grupo · ${d.tareas.length} ${d.tareas.length === 1 ? 'tarea' : 'tareas'}` : x.lugar || 'Sin lugar'),
+        h('button', { class: 'chico', type: 'button', onclick: cerrar }, 'Cerrar')),
+      h('h2', { class: 'tarea' }, esGrupo ? x.nombre : x.texto),
+    ];
+    if (esGrupo) {
+      partes.push(h('ul', { class: 'lista' }, d.tareas.map((t) =>
+        h('li', null, h('a', { href: '#/tarea/' + t.id, onclick: () => fondo.remove() },
+          h('span', { class: 'texto' }, t.texto),
+          h('span', { class: 'datos' }, chipEstado(t), h('span', null, t.lugar || 'Sin lugar')))))));
+    }
+    partes.push(h('section', { class: 'caja' },
+      h('div', { class: 'fila' }, h('span', { class: 'grande' }, x.monto != null ? plata(x.monto, x.moneda) : 'Sin presupuesto'), chipPresupuesto(estado)),
+      x.plazo ? h('p', null, 'Fecha de entrega: ', h('strong', { class: x.plazo < hoy() && estado !== 'aprobado' ? 'vencida' : null }, dia(x.plazo))) : null,
+      nota ? h('p', { class: 'texto' }, nota) : null,
+      estado === 'rechazado' && x.motivo ? h('p', { class: 'nota' }, 'Rechazado: ' + x.motivo) : null,
+      estado === 'aprobado' ? h('p', { class: 'sub' }, `Aprobado el ${dia(esGrupo ? x.aprobado_en : x.aprobada_en)}`) : null,
+    ));
+
+    if (esDireccion() && estado === 'presupuestado') {
+      const [rechazar, formRechazo] = pedirMotivo('Rechazar', 'v-motivo', (motivo, control) => mandar(control, 'POST', base + '/accion', { accion: 'rechazar', motivo }, 'Presupuesto rechazado.'));
+      partes.push(
+        h('div', { class: 'fila' },
+          h('button', { class: 'bien', type: 'button', onclick: (e) => mandar(e.currentTarget, 'POST', base + '/accion', { accion: 'aprobar' }, 'Presupuesto aprobado.') }, 'Aprobar presupuesto'),
+          rechazar),
+        formRechazo);
+    }
+
+    if (esConstructor() && estado !== 'aprobado') {
+      const monto = h('input', { id: 'v-monto', type: 'number', inputmode: 'numeric', min: 0, step: 1, required: true, value: x.monto ?? '' });
+      const moneda = h('select', { id: 'v-moneda' }, h('option', { value: 'ARS' }, 'Pesos'), h('option', { value: 'USD' }, 'Dólares'));
+      moneda.value = x.moneda;
+      const plazo = h('input', { id: 'v-plazo', type: 'date', required: true, value: x.plazo ?? '' });
+      const campoNota = h('input', { id: 'v-nota', type: 'text', maxlength: 500, value: nota });
+      const nombre = esGrupo ? h('input', { id: 'v-nombre', type: 'text', maxlength: 80, required: true, value: x.nombre }) : null;
+      partes.push(h('details', { class: 'caja' },
+        h('summary', { class: 'titulo' }, 'Cambiar el presupuesto'),
+        h('form', {
+          class: 'rejilla',
+          onsubmit: (e) => {
+            e.preventDefault();
+            const datos = { monto: Number(monto.value), moneda: moneda.value, plazo: plazo.value, nota: campoNota.value };
+            if (esGrupo) mandar(e.submitter, 'PATCH', base, { ...datos, nombre: nombre.value }, 'Presupuesto cambiado.');
+            else mandar(e.submitter, 'POST', base + '/accion', { accion: 'presupuestar', ...datos }, 'Presupuesto cambiado.');
+          },
+        },
+          esGrupo ? h('label', { class: 'ancho', for: 'v-nombre' }, 'Nombre del grupo', nombre) : null,
+          h('label', { for: 'v-monto' }, 'Monto total, sin centavos', monto),
+          h('label', { for: 'v-moneda' }, 'Moneda', moneda),
+          h('label', { for: 'v-plazo' }, 'Fecha de entrega', plazo),
+          h('label', { for: 'v-nota' }, 'Nota', campoNota),
+          h('button', { class: 'principal ancho', type: 'submit' }, 'Guardar y volver a enviar')),
+        esGrupo ? h('div', { class: 'fila' },
+          h('button', {
+            class: 'peligro', type: 'button',
+            onclick: async (e) => { if (await hacer(e.currentTarget, () => api('DELETE', base), 'Grupo desarmado: las tareas quedaron sin presupuesto.')) { cambio = true; cerrar(); } },
+          }, 'Desarmar el grupo')) : null));
+    }
+
+    if (estado === 'aprobado' || d.pagos.length) {
+      const caja = h('section', { class: 'caja' },
+        h('h2', null, 'Pagos'),
+        h('p', { class: 'sub' }, d.pagos.length ? `Pagado: ${plata(pagado, x.moneda)} · Saldo: ${plata(x.monto - pagado, x.moneda)}` : 'Sin pagos registrados.'),
+        d.pagos.length ? h('ul', { class: 'historial' }, d.pagos.map((g) =>
+          h('li', null,
+            h('span', { class: 'fila entre' },
+              h('strong', null, plata(g.monto, x.moneda)),
+              esDireccion() ? h('button', { class: 'chico peligro', type: 'button', onclick: (e) => mandar(e.currentTarget, 'DELETE', `${base}/pagos/${g.id}`, null, 'Pago borrado.') }, 'Borrar') : null),
+            h('span', { class: 'cuando' }, `${dia(g.fecha)} · lo registró ${g.persona || 'alguien'}`),
+            g.nota ? h('span', { class: 'dicho' }, g.nota) : null))) : null);
+      if (esDireccion()) {
+        const monto = h('input', { id: 'v-pago', type: 'number', inputmode: 'numeric', min: 1, step: 1, required: true });
+        const fecha = h('input', { id: 'v-fecha', type: 'date', required: true, value: hoy() });
+        const notaPago = h('input', { id: 'v-nota-pago', type: 'text', maxlength: 300, placeholder: 'Anticipo, transferencia, efectivo…' });
+        caja.append(h('details', null,
+          h('summary', null, 'Registrar un pago'),
+          h('form', {
+            class: 'rejilla',
+            onsubmit: (e) => { e.preventDefault(); mandar(e.submitter, 'POST', base + '/pagos', { monto: Number(monto.value), fecha: fecha.value, nota: notaPago.value }, 'Pago registrado.'); },
+          },
+            h('label', { for: 'v-pago' }, `Monto en ${x.moneda === 'USD' ? 'dólares' : 'pesos'}`, monto),
+            h('label', { for: 'v-fecha' }, 'Fecha', fecha),
+            h('label', { class: 'ancho', for: 'v-nota-pago' }, 'Nota', notaPago),
+            h('button', { class: 'principal ancho', type: 'submit' }, 'Guardar pago'))));
+      }
+      partes.push(caja);
+    }
+    ventana.replaceChildren(...partes);
+    return true;
+  }
+
+  if (await pintar()) document.body.append(fondo);
+}
+
 // ---------- obras ----------
 function vistaObras() {
   const lista = accesos();
@@ -714,6 +895,7 @@ async function mostrar() {
   const ruta = location.hash.replace(/^#\/?/, '');
   try {
     if (ruta.startsWith('tarea/')) await vistaTarea(Number(ruta.slice(6)));
+    else if (ruta === 'presupuestos') await vistaPresupuestos();
     else if (ruta === 'resumen') await vistaResumen();
     else if (ruta === 'personas') await vistaPersonas();
     else if (ruta === 'obras') vistaObras();

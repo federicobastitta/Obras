@@ -32,7 +32,8 @@ a { color: var(--accent); }
 .barra .fila { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; max-width: 720px; margin: 0 auto; }
 .barra h1 { font-size: 1.15rem; font-weight: 650; overflow-wrap: anywhere; }
 .barra .quien { font-size: 0.82rem; opacity: 0.85; text-align: right; flex: none; }
-.pestanas { display: flex; gap: 4px; max-width: 720px; margin: 8px auto 0; }
+.pestanas { display: flex; gap: 2px; max-width: 720px; margin: 8px auto 0; overflow-x: auto; scrollbar-width: none; }
+.pestanas a { white-space: nowrap; flex: none; }
 .pestanas a {
   color: inherit; text-decoration: none; padding: 8px 12px; font-size: 0.92rem; border-radius: 8px 8px 0 0; opacity: 0.8;
 }
@@ -120,3 +121,18 @@ thead th { border-top: 0; font-size: 0.74rem; text-transform: uppercase; letter-
 }
 .aviso.error { background: var(--danger); color: var(--surface); }
 .ingreso { max-width: 420px; margin: 12vh auto 0; }
+
+/* Hoja de presupuestos y ventana de presupuesto */
+.lista label.elegir { display: flex; gap: 12px; align-items: flex-start; padding: 13px 14px; cursor: pointer;
+  font-size: 1rem; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ink); }
+.lista .cuerpo { display: grid; gap: 6px; min-width: 0; }
+input[type="checkbox"] { width: 22px; height: 22px; flex: none; padding: 0; margin: 1px 0 0; accent-color: var(--accent); }
+.lista button.renglon { display: grid; gap: 6px; width: 100%; text-align: left; padding: 13px 14px; border: 0; border-radius: 0; background: transparent; }
+.lista button.renglon:active { background: var(--bg); }
+.fondo { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; justify-content: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 24px) 0 0; }
+.ventana { background: var(--bg); width: 100%; max-width: 600px; max-height: 100%; overflow-y: auto; border-radius: 14px 14px 0 0;
+  padding: 16px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 24px) max(16px, env(safe-area-inset-left, 0px));
+  display: grid; gap: 12px; align-content: start; }
+.ventana h2.tarea { font-size: 1.2rem; font-weight: 650; overflow-wrap: anywhere; }
+@media (min-width: 640px) { .fondo { align-items: center; padding: 24px; } .ventana { border-radius: 14px; } }

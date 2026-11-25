@@ -102,7 +102,35 @@ export function crearApp({ dirDatos, dirWeb }) {
     pagos: db.prepare(`SELECT g.id, g.monto, g.fecha, g.nota, p.nombre AS persona
       FROM pagos g LEFT JOIN personas p ON p.id = g.persona_id WHERE g.tarea_id = ? ORDER BY g.fecha, g.id`),
     personas: db.prepare('SELECT id, nombre, rol, token, activa FROM personas WHERE obra_id = ? ORDER BY id'),
+    grupos: db.prepare(`SELECT g.*,
+        (SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.grupo_id = g.id) AS pagado,
+        (SELECT COUNT(*) FROM tareas t WHERE t.grupo_id = g.id) AS cantidad
+      FROM grupos g WHERE g.obra_id = ? ORDER BY g.id`),
+    grupo: db.prepare('SELECT * FROM grupos WHERE id = ? AND obra_id = ?'),
+    tareasDeGrupo: db.prepare('SELECT id, texto, lugar, estado FROM tareas WHERE grupo_id = ? ORDER BY id'),
+    pagosDeGrupo: db.prepare(`SELECT g.id, g.monto, g.fecha, g.nota, p.nombre AS persona
+      FROM pagos g LEFT JOIN personas p ON p.id = g.persona_id WHERE g.grupo_id = ? ORDER BY g.fecha, g.id`),
   };
+
+  function enTransaccion(f) {
+    db.exec('BEGIN');
+    try {
+      const r = f();
+      db.exec('COMMIT');
+      return r;
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+  function presupuestoDe(c) {
+    return {
+      m: monto(c.monto, 'El presupuesto'),
+      moneda: c.moneda === 'USD' ? 'USD' : 'ARS',
+      plazo: fechaDia(c.plazo, { requerido: true, nombre: 'El plazo' }),
+      nota: texto(c.nota, 500, { nombre: 'La nota' }),
+    };
+  }
 
   const esDireccion = (p) => p.rol === 'propietario' || p.rol === 'arquitecto';
   const soloDireccion = (p) => {
@@ -123,6 +151,9 @@ export function crearApp({ dirDatos, dirWeb }) {
       const k = Object.keys(campos);
       db.prepare(`UPDATE tareas SET ${k.map((x) => x + ' = ?').join(', ')} WHERE id = ?`).run(...k.map((x) => campos[x]), t.id);
     };
+    if (t.grupo_id && ['presupuestar', 'aprobar', 'rechazar'].includes(c.accion)) {
+      throw falla(409, 'Esta tarea se presupuestó en grupo: el presupuesto se cambia, aprueba o rechaza desde el grupo.');
+    }
     switch (c.accion) {
       case 'presupuestar': {
         soloConstructor(p);
@@ -211,7 +242,7 @@ export function crearApp({ dirDatos, dirWeb }) {
     }
 
     if (a === 'tareas' && !id) {
-      if (m === 'GET') return responder(200, { tareas: q.tareas.all(p.obra_id) });
+      if (m === 'GET') return responder(200, { tareas: q.tareas.all(p.obra_id), grupos: q.grupos.all(p.obra_id) });
       if (m === 'POST') {
         soloDireccion(p);
         const c = await leerJson(req);
@@ -234,7 +265,13 @@ export function crearApp({ dirDatos, dirWeb }) {
     if (a === 'tareas' && id && !b) {
       const t = buscarTarea(id, p);
       if (m === 'GET') {
-        return responder(200, { tarea: t, eventos: q.eventos.all(t.id), fotos: q.fotos.all(t.id), pagos: q.pagos.all(t.id) });
+        return responder(200, {
+          tarea: t,
+          grupo: t.grupo_id ? q.grupo.get(t.grupo_id, p.obra_id) : null,
+          eventos: q.eventos.all(t.id),
+          fotos: q.fotos.all(t.id),
+          pagos: q.pagos.all(t.id),
+        });
       }
       if (m === 'PATCH') {
         soloDireccion(p);
@@ -285,6 +322,7 @@ export function crearApp({ dirDatos, dirWeb }) {
       }
       if (b === 'pagos' && m === 'POST') {
         soloDireccion(p);
+        if (t.grupo_id) throw falla(409, 'Esta tarea se presupuestó en grupo: los pagos se cargan en el grupo.');
         const c = await leerJson(req);
         const n = monto(c.monto);
         if (n === 0) throw falla(400, 'El monto del pago no puede ser cero.');
@@ -301,6 +339,111 @@ export function crearApp({ dirDatos, dirWeb }) {
         db.prepare('DELETE FROM pagos WHERE id = ?').run(g.id);
         anotar(t.id, p, 'pago_borrado', `${t.moneda} ${g.monto}`);
         return responder(200, { ok: true });
+      }
+    }
+
+    if (a === 'grupos') {
+      // Presupuesto en grupo: un solo monto y un plazo para varias tareas. El avance sigue siendo tarea por tarea.
+      if (!id && m === 'POST') {
+        soloConstructor(p);
+        const c = await leerJson(req);
+        const ids = Array.isArray(c.tareas) ? [...new Set(c.tareas.map(Number))] : [];
+        if (ids.length < 2) throw falla(400, 'Elegí al menos dos tareas para presupuestarlas juntas.');
+        const lista = ids.map((x) => buscarTarea(x, p));
+        for (const t of lista) {
+          if (t.grupo_id) throw falla(409, `«${t.texto}» ya está en otro grupo.`);
+          if (!['pendiente', 'presupuestada'].includes(t.estado)) {
+            throw falla(409, `«${t.texto}» ya fue aprobada o realizada: no se puede sumar a un grupo.`);
+          }
+        }
+        const d = presupuestoDe(c);
+        const nombre = texto(c.nombre, 80, { nombre: 'El nombre del grupo' }) || `Grupo de ${lista.length} tareas`;
+        const gid = enTransaccion(() => {
+          const t0 = ahora();
+          const nuevo = db
+            .prepare('INSERT INTO grupos (obra_id, nombre, monto, moneda, nota, plazo, creado_por, creado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(p.obra_id, nombre, d.m, d.moneda, d.nota, d.plazo, p.id, t0).lastInsertRowid;
+          const poner = db.prepare(
+            "UPDATE tareas SET grupo_id = ?, estado = 'presupuestada', monto = NULL, presupuesto_nota = '', plazo = ?, motivo = '', presupuestada_en = ? WHERE id = ?",
+          );
+          for (const t of lista) {
+            poner.run(nuevo, d.plazo, t0, t.id);
+            anotar(t.id, p, 'presupuestada', `en el grupo «${nombre}»: ${d.moneda} ${d.m} · plazo ${d.plazo}`);
+          }
+          return nuevo;
+        });
+        return responder(201, { id: Number(gid) });
+      }
+      if (id) {
+        const g = q.grupo.get(Number(id), p.obra_id);
+        if (!g) throw falla(404, 'No se encontró el grupo.');
+        const suyas = q.tareasDeGrupo.all(g.id);
+        if (!b && m === 'GET') return responder(200, { grupo: g, tareas: suyas, pagos: q.pagosDeGrupo.all(g.id) });
+        if (!b && m === 'PATCH') {
+          soloConstructor(p);
+          if (g.estado === 'aprobado') throw falla(409, 'El presupuesto del grupo ya fue aprobado y no se puede cambiar.');
+          const c = await leerJson(req);
+          const d = presupuestoDe(c);
+          const nombre = texto(c.nombre ?? g.nombre, 80, { requerido: true, nombre: 'El nombre del grupo' });
+          enTransaccion(() => {
+            const t0 = ahora();
+            db.prepare("UPDATE grupos SET nombre = ?, monto = ?, moneda = ?, nota = ?, plazo = ?, estado = 'presupuestado', motivo = '' WHERE id = ?")
+              .run(nombre, d.m, d.moneda, d.nota, d.plazo, g.id);
+            db.prepare("UPDATE tareas SET estado = 'presupuestada', plazo = ?, motivo = '', presupuestada_en = ? WHERE grupo_id = ? AND estado IN ('pendiente','presupuestada')")
+              .run(d.plazo, t0, g.id);
+            for (const t of suyas) anotar(t.id, p, 'presupuestada', `en el grupo «${nombre}»: ${d.moneda} ${d.m} · plazo ${d.plazo}`);
+          });
+          return responder(200, { ok: true });
+        }
+        if (!b && m === 'DELETE') {
+          if (g.estado === 'aprobado') throw falla(409, 'El grupo ya fue aprobado: no se puede desarmar.');
+          enTransaccion(() => {
+            for (const t of suyas) anotar(t.id, p, 'desagrupada', `grupo «${g.nombre}»`);
+            db.prepare("UPDATE tareas SET estado = 'pendiente', plazo = NULL, motivo = '' WHERE grupo_id = ? AND estado IN ('pendiente','presupuestada')").run(g.id);
+            db.prepare('DELETE FROM grupos WHERE id = ?').run(g.id);
+          });
+          return responder(200, { ok: true });
+        }
+        if (b === 'accion' && m === 'POST') {
+          soloDireccion(p);
+          const c = await leerJson(req);
+          if (g.estado !== 'presupuestado') throw falla(409, 'Solo se aprueba o rechaza un grupo con presupuesto a aprobar.');
+          if (c.accion === 'aprobar') {
+            enTransaccion(() => {
+              const t0 = ahora();
+              db.prepare("UPDATE grupos SET estado = 'aprobado', aprobado_en = ?, motivo = '' WHERE id = ?").run(t0, g.id);
+              db.prepare("UPDATE tareas SET estado = 'aprobada', aprobada_en = ?, motivo = '' WHERE grupo_id = ? AND estado = 'presupuestada'").run(t0, g.id);
+              for (const t of suyas) anotar(t.id, p, 'aprobada', `grupo «${g.nombre}»: ${g.moneda} ${g.monto}`);
+            });
+            return responder(200, { ok: true });
+          }
+          if (c.accion === 'rechazar') {
+            const motivo = texto(c.motivo, 500, { requerido: true, nombre: 'El motivo' });
+            enTransaccion(() => {
+              db.prepare("UPDATE grupos SET estado = 'rechazado', motivo = ? WHERE id = ?").run(motivo, g.id);
+              db.prepare("UPDATE tareas SET estado = 'pendiente', motivo = ? WHERE grupo_id = ? AND estado = 'presupuestada'").run(motivo, g.id);
+              for (const t of suyas) anotar(t.id, p, 'rechazada', `grupo «${g.nombre}»: ${motivo}`);
+            });
+            return responder(200, { ok: true });
+          }
+          throw falla(400, 'Acción desconocida.');
+        }
+        if (b === 'pagos' && m === 'POST') {
+          soloDireccion(p);
+          const c = await leerJson(req);
+          const n = monto(c.monto);
+          if (n === 0) throw falla(400, 'El monto del pago no puede ser cero.');
+          const dia = fechaDia(c.fecha, { requerido: true, nombre: 'La fecha del pago' });
+          db.prepare('INSERT INTO pagos (grupo_id, persona_id, monto, fecha, nota, creada) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(g.id, p.id, n, dia, texto(c.nota, 300, { nombre: 'La nota' }), ahora());
+          return responder(201, { ok: true });
+        }
+        if (b === 'pagos' && id2 && m === 'DELETE') {
+          soloDireccion(p);
+          const r = db.prepare('DELETE FROM pagos WHERE id = ? AND grupo_id = ?').run(Number(id2), g.id);
+          if (!r.changes) throw falla(404, 'No se encontró el pago.');
+          return responder(200, { ok: true });
+        }
       }
     }
 

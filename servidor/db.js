@@ -21,9 +21,25 @@ CREATE TABLE IF NOT EXISTS personas (
   creada TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS grupos (
+  id INTEGER PRIMARY KEY,
+  obra_id INTEGER NOT NULL REFERENCES obras(id),
+  nombre TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'presupuestado' CHECK (estado IN ('presupuestado','aprobado','rechazado')),
+  monto INTEGER NOT NULL,
+  moneda TEXT NOT NULL DEFAULT 'ARS' CHECK (moneda IN ('ARS','USD')),
+  nota TEXT NOT NULL DEFAULT '',
+  plazo TEXT NOT NULL,
+  motivo TEXT NOT NULL DEFAULT '',
+  creado_por INTEGER REFERENCES personas(id),
+  creado TEXT NOT NULL,
+  aprobado_en TEXT
+);
+
 CREATE TABLE IF NOT EXISTS tareas (
   id INTEGER PRIMARY KEY,
   obra_id INTEGER NOT NULL REFERENCES obras(id),
+  grupo_id INTEGER REFERENCES grupos(id) ON DELETE SET NULL,
   lugar TEXT NOT NULL DEFAULT '',
   texto TEXT NOT NULL,
   prioridad TEXT NOT NULL DEFAULT 'media' CHECK (prioridad IN ('alta','media','baja')),
@@ -66,7 +82,8 @@ CREATE INDEX IF NOT EXISTS fotos_tarea ON fotos(tarea_id);
 
 CREATE TABLE IF NOT EXISTS pagos (
   id INTEGER PRIMARY KEY,
-  tarea_id INTEGER NOT NULL REFERENCES tareas(id) ON DELETE CASCADE,
+  tarea_id INTEGER REFERENCES tareas(id) ON DELETE CASCADE,
+  grupo_id INTEGER REFERENCES grupos(id) ON DELETE CASCADE,
   persona_id INTEGER REFERENCES personas(id),
   monto INTEGER NOT NULL,
   fecha TEXT NOT NULL,

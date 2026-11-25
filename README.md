@@ -6,7 +6,9 @@ Se instala en el celular (PWA) y cada persona entra con su link personal, sin co
 ## Qué hace
 
 - El propietario o el arquitecto cargan las tareas, por lugar de la casa y con prioridad.
-- El constructor le pone presupuesto (pesos o dólares) y plazo probable a cada tarea.
+- En la hoja de Presupuestos, el constructor cotiza una tarea sola o varias juntas con un solo precio y una sola
+  fecha de entrega (pesos o dólares). Al tocar un presupuesto se abre una ventana con lo cargado: monto, fecha de
+  entrega, estado y pagos.
 - El propietario o el arquitecto aprueban o rechazan el presupuesto (el rechazo pide motivo).
 - El constructor marca la tarea como realizada; el propietario o el arquitecto la verifican o la devuelven con el motivo.
 - Fotos de antes y después, comentarios, pagos y un historial de quién hizo qué y cuándo.
