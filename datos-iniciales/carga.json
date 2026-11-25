@@ -1,0 +1,91 @@
+{
+ "id": "2026-11-25-pendientes-casa",
+ "obra": "Casa",
+ "tipo": "Vivienda",
+ "tareas": [
+  {
+   "lugar": "Cocina",
+   "texto": "Instalar extractor de cocina."
+  },
+  {
+   "lugar": "Interior general",
+   "texto": "Instalar los espejos."
+  },
+  {
+   "lugar": "Galería y exteriores",
+   "texto": "Colocar piedras decorativas en la galería externa."
+  },
+  {
+   "lugar": "Galería y exteriores",
+   "texto": "Colocar fuente."
+  },
+  {
+   "lugar": "Galería y exteriores",
+   "texto": "Instalar canilla en sector externo."
+  },
+  {
+   "lugar": "Pileta",
+   "texto": "Terminar instalación de pileta."
+  },
+  {
+   "lugar": "Pileta",
+   "texto": "Terminar borde de pileta."
+  },
+  {
+   "lugar": "Pileta",
+   "texto": "Instalar caldera de pileta."
+  },
+  {
+   "lugar": "Pileta",
+   "texto": "Instalar filtros de pileta."
+  },
+  {
+   "lugar": "Pileta",
+   "texto": "Comprobar funcionamiento de llenado y filtrado."
+  },
+  {
+   "lugar": "Electricidad",
+   "texto": "Terminar iluminación LED y dicroicas de galería."
+  },
+  {
+   "lugar": "Electricidad",
+   "texto": "Terminar iluminación LED y dicroicas de cochera del frente."
+  },
+  {
+   "lugar": "Electricidad",
+   "texto": "Terminar iluminación LED y dicroicas de cochera lateral."
+  },
+  {
+   "lugar": "Electricidad",
+   "texto": "Colocar estructura del tablero eléctrico."
+  },
+  {
+   "lugar": "Electricidad",
+   "texto": "Colocar enchufes en columnas."
+  },
+  {
+   "lugar": "Electricidad",
+   "texto": "Colocar enchufes donde sea posible en la galería."
+  },
+  {
+   "lugar": "Electricidad",
+   "texto": "Instalar grupo electrógeno."
+  },
+  {
+   "lugar": "Baño 2 · Planta alta",
+   "texto": "Colocar picaporte."
+  },
+  {
+   "lugar": "Baño 2 · Planta alta",
+   "texto": "Colocar cortina."
+  },
+  {
+   "lugar": "Baño · Planta baja",
+   "texto": "Colocar picaporte."
+  },
+  {
+   "lugar": "Lavadero",
+   "texto": "Colocar lavarropas."
+  }
+ ]
+}
