@@ -563,6 +563,14 @@ export function crearApp({ dirDatos, dirWeb }) {
       }
     }
 
+    if (a === 'actividad' && !id && m === 'GET') {
+      // Lo último que pasó en la obra: quién hizo qué en cada tarea. Un proveedor solo ve lo de sus trabajos.
+      const filas = db.prepare(`SELECT e.id, e.tipo, e.detalle, e.fecha, e.tarea_id, t.texto AS tarea, p.nombre AS persona, p.rol, p.rubro
+          FROM eventos e JOIN tareas t ON t.id = e.tarea_id LEFT JOIN personas p ON p.id = e.persona_id
+          WHERE t.obra_id = ? AND (? = 0 OR t.asignada_a = ?) ORDER BY e.fecha DESC, e.id DESC LIMIT 30`).all(p.obra_id, p.limitado ? 1 : 0, p.id);
+      return responder(200, { eventos: filas });
+    }
+
     if (a === 'fotos' && !id && m === 'GET') {
       // Últimas fotos que subieron el constructor y los proveedores (para el Inicio). Un proveedor solo ve las de sus trabajos.
       const filas = db.prepare(`SELECT f.id, f.tarea_id, f.momento, f.fecha, t.texto AS tarea, p.nombre AS persona

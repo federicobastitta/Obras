@@ -197,6 +197,24 @@ test('proveedores: entran con su link y ven solo el trabajo que se les encargó'
   assert.equal((await pedir(duena, 'POST', '/api/tareas', { texto: 'x', asignada_a: 999999 })).codigo, 400);
 });
 
+test('actividad: lo último que pasó, sin mezclar obras ni mostrar trabajos ajenos', async () => {
+  const todos = (await pedir(duena, 'GET', '/api/actividad')).datos.eventos;
+  assert.ok(todos.length > 5 && todos.length <= 30);
+  assert.deepEqual(todos.map((e) => e.fecha), todos.map((e) => e.fecha).sort().reverse(), 'del más nuevo al más viejo');
+  assert.ok(todos.every((e) => e.tarea && e.tipo));
+  assert.ok(todos.some((e) => e.persona === 'Dueña') && todos.some((e) => e.rol === 'constructor'));
+  // La obra ajena solo ve lo suyo.
+  const ajenos = (await pedir(otra.token, 'GET', '/api/actividad')).datos.eventos;
+  assert.ok(ajenos.every((e) => e.tarea === 'Ajena'));
+  // El proveedor solo ve eventos de las tareas que tiene encargadas.
+  const personas = (await pedir(duena, 'GET', '/api/personas')).datos.personas;
+  const pedro = personas.find((x) => x.rubro === 'Plomería');
+  const suyas = new Set((await pedir(pedro.token, 'GET', '/api/tareas')).datos.tareas.map((t) => t.texto));
+  const vistos = (await pedir(pedro.token, 'GET', '/api/actividad')).datos.eventos;
+  assert.ok(vistos.length > 0 && vistos.every((e) => suyas.has(e.tarea)));
+  assert.equal((await pedir('nada', 'GET', '/api/actividad')).codigo, 401);
+});
+
 test('obras nuevas: las crea quien dirige, y arrancan vacías y separadas', async () => {
   assert.equal((await pedir(constructor, 'POST', '/api/obras', { nombre: 'Quincho' })).codigo, 403);
   assert.equal((await pedir(duena, 'POST', '/api/obras', { nombre: '  ' })).codigo, 400);
