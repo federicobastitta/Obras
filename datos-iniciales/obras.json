@@ -1,9 +1,3 @@
 [
-  { "nombre": "Casa", "tipo": "Vivienda", "tareas": "casa.json" },
-  { "nombre": "Lomas de Zamora", "tipo": "Clínica o consultorio" },
-  { "nombre": "Lanús", "tipo": "Clínica o consultorio" },
-  { "nombre": "Sede Central Berazategui", "tipo": "Clínica o consultorio" },
-  { "nombre": "Centro Cardiológico", "tipo": "Clínica o consultorio" },
-  { "nombre": "Centro de la Mujer", "tipo": "Clínica o consultorio" },
-  { "nombre": "Centro de Kinesiología", "tipo": "Clínica o consultorio" }
+  { "nombre": "Mi primera obra" }
 ]
