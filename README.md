@@ -37,9 +37,16 @@ Desde la pestaña Personas, el propietario crea los links del arquitecto y del c
 
 ## Servidor
 
-`infra/obras.service` es el servicio de systemd (código en `/opt/obras`, datos en `/var/lib/obras`).
-`scripts/desplegar.sh` corre las pruebas, reinicia y comprueba `/salud`. Tiene que ir detrás de https
-(Caddy o nginx): sin https el celular no deja instalarla como app.
+`infra/instalar.sh` instala o actualiza todo y se puede correr las veces que haga falta. Lo corre Alldoo como root,
+parado en `/opt/obras`, después de bajar el código:
+
+- baja un Node 22 propio a `/opt/obras-node` (no toca el Node del sistema ni lo demás que corra en la máquina);
+- corre las pruebas y, si fallan, no instala nada;
+- crea el usuario `obras`, los datos en `/var/lib/obras` y el servicio `obras` (`infra/obras.service`);
+- con la variable `DOMINIO`, suma un sitio de nginx para esa dirección y le saca el certificado https.
+
+Sin https el celular no deja instalarla como app. La primera vez, los links de acceso quedan en
+`/var/lib/obras/primer-acceso.txt`.
 
 ## Lo que todavía no tiene
 
