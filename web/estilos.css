@@ -191,3 +191,7 @@ progress::-moz-progress-bar { background: var(--ok); }
 .rejilla p.ancho { grid-column: 1 / -1; }
 .cuerpo-ventana { display: grid; gap: 12px; }
 @media (prefers-reduced-motion: reduce) { button.cuadro:active { transform: none; } }
+
+.boton.principal { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 650; }
+.boton.chico { font-size: 0.85rem; padding: 5px 10px; }
+input[type="file"] { padding: 8px; font-size: 0.9rem; }

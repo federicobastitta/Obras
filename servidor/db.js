@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS fotos (
 );
 CREATE INDEX IF NOT EXISTS fotos_tarea ON fotos(tarea_id);
 
+CREATE TABLE IF NOT EXISTS archivos (
+  id INTEGER PRIMARY KEY,
+  tarea_id INTEGER NOT NULL REFERENCES tareas(id) ON DELETE CASCADE,
+  persona_id INTEGER REFERENCES personas(id),
+  nombre TEXT NOT NULL,
+  archivo TEXT NOT NULL,
+  tamano INTEGER NOT NULL,
+  fecha TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS archivos_tarea ON archivos(tarea_id);
+
 CREATE TABLE IF NOT EXISTS pagos (
   id INTEGER PRIMARY KEY,
   tarea_id INTEGER REFERENCES tareas(id) ON DELETE CASCADE,

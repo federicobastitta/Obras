@@ -13,7 +13,9 @@ Se instala en el celular (PWA) y cada persona entra con su link personal, sin co
   entrega, estado y pagos.
 - El propietario o el arquitecto aprueban o rechazan el presupuesto (el rechazo pide motivo).
 - El constructor marca la tarea como realizada; el propietario o el arquitecto la verifican o la devuelven con el motivo.
-- Fotos de antes y después, comentarios, pagos y un historial de quién hizo qué y cuándo.
+- Fotos de antes y después, archivos adjuntos (PDF, planos DWG, planillas… hasta 20 MB, siempre como descarga),
+  comentarios, pagos y un historial de quién hizo qué y cuándo.
+- Los links de acceso se mandan por WhatsApp con un botón: quien lo abre entra sin usuario ni contraseña.
 - Inicio con cuadros y carpetas: todas las obras de la persona, cada una con su tipo (vivienda, clínica, local…), avance, lo que espera su
   respuesta, plazos vencidos y saldo. Desde ahí se crean obras nuevas y se entra a cada una.
 - Proveedores: desde Inicio se da de alta un proveedor (plomero, electricista…) con el trabajo que se le encarga en

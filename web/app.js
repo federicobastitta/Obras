@@ -50,6 +50,8 @@ const EVENTOS = {
   comentario: 'comentó',
   foto: 'subió una foto',
   foto_borrada: 'borró una foto',
+  archivo: 'subió un archivo',
+  archivo_borrado: 'borró un archivo',
   pago: 'registró un pago',
   pago_borrado: 'borró un pago',
 };
@@ -313,6 +315,39 @@ function selectorDeQuien(id, personas, actual) {
   sel.value = actual ?? '';
   return sel;
 }
+const ES_FOTO = /\.(jpe?g|png|webp|heic)$/i;
+const tamano = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+/** Sube fotos y archivos a una tarea con el link indicado. Las fotos se achican; lo demás va tal cual (hasta 20 MB). */
+async function subirAdjuntos(k, tareaId, lista, momentoFoto = 'otro') {
+  for (const a of lista) {
+    const foto = a.type.startsWith('image/') && !/heic/i.test(a.type + a.name);
+    if (!foto && a.size > 20 * 1024 * 1024) throw new Error(`«${a.name}» pesa más de 20 MB.`);
+    const ruta = foto ? `/api/tareas/${tareaId}/fotos?momento=${momentoFoto}` : `/api/tareas/${tareaId}/archivos?nombre=${encodeURIComponent(a.name)}`;
+    let r;
+    try {
+      r = await fetch(ruta, { method: 'POST', headers: { Authorization: 'Bearer ' + k }, body: foto ? await achicar(a) : a });
+    } catch (e) {
+      throw new Error(e.message && !/fetch/i.test(e.message) ? e.message : 'No hay conexión. Probá de nuevo cuando vuelva la señal.');
+    }
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `No se pudo subir «${a.name}».`);
+  }
+}
+async function bajarArchivo(a) {
+  const r = await fetch('/api/archivos/' + a.id, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) throw new Error('No se pudo bajar el archivo.');
+  const u = URL.createObjectURL(await r.blob());
+  const enlace = h('a', { href: u, download: a.nombre });
+  document.body.append(enlace);
+  enlace.click();
+  enlace.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 60000);
+}
+/** Link que abre WhatsApp con el mensaje escrito. Con número va directo a ese chat; sin número, deja elegir el contacto. */
+function linkDeWhatsApp(mensaje, numero = '') {
+  const n = numero.replace(/\D/g, '');
+  return `https://wa.me/${n}?text=${encodeURIComponent(mensaje)}`;
+}
+
 /** Ventana emergente con título y botón de cerrar. Devuelve { cuerpo, cerrar }. */
 function ventana(titulo, alCerrar) {
   const cuerpo = h('div', { class: 'cuerpo-ventana' });
@@ -410,6 +445,7 @@ async function vistaLista() {
             t.monto != null ? h('span', null, plata(t.monto, t.moneda)) : null,
             t.plazo ? h('span', { class: vencida(t) ? 'vencida' : null }, (vencida(t) ? 'Venció el ' : 'Entrega ') + dia(t.plazo)) : null,
             t.fotos ? h('span', null, `${t.fotos} ${t.fotos === 1 ? 'foto' : 'fotos'}`) : null,
+            t.archivos ? h('span', null, `${t.archivos} ${t.archivos === 1 ? 'archivo' : 'archivos'}`) : null,
             t.comentarios ? h('span', null, `${t.comentarios} ${t.comentarios === 1 ? 'comentario' : 'comentarios'}`) : null,
           ),
         ),
@@ -420,7 +456,7 @@ async function vistaLista() {
 
 // ---------- detalle ----------
 async function vistaTarea(id) {
-  const { tarea: t, grupo, eventos, fotos } = await api('GET', '/tareas/' + id);
+  const { tarea: t, grupo, eventos, fotos, archivos } = await api('GET', '/tareas/' + id);
   const recargar = () => vistaTarea(id);
   const accion = (control, cuerpo, hecho) => hacer(control, () => api('POST', `/tareas/${id}/accion`, cuerpo), hecho).then((ok) => ok && recargar());
 
@@ -519,6 +555,30 @@ async function vistaTarea(id) {
       h('label', { for: 'f-archivo' }, 'Agregar fotos', archivo)),
   );
 
+  // Archivos (planos, presupuestos en PDF, planillas…)
+  const subirArchivo = h('input', {
+    id: 'a-archivo', type: 'file', multiple: true,
+    accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.dwg,.dxf,.zip,image/*',
+    onchange: async () => {
+      const elegidos = [...subirArchivo.files];
+      if (!elegidos.length) return;
+      const ok = await hacer(subirArchivo, () => subirAdjuntos(token, id, elegidos, cuando.value), elegidos.length === 1 ? 'Archivo subido.' : `${elegidos.length} archivos subidos.`);
+      if (ok) recargar(); else subirArchivo.value = '';
+    },
+  });
+  const cajaArchivos = h('section', { class: 'caja' },
+    h('h2', null, 'Archivos'),
+    archivos.length ? h('ul', { class: 'historial' }, archivos.map((a) =>
+      h('li', null,
+        h('span', { class: 'fila entre' },
+          h('strong', { class: 'texto' }, a.nombre),
+          h('span', { class: 'fila' },
+            h('button', { class: 'chico', type: 'button', onclick: (e) => hacer(e.currentTarget, () => bajarArchivo(a)) }, 'Descargar'),
+            esDireccion() || a.persona_id === yo.id ? h('button', { class: 'chico peligro', type: 'button', onclick: (e) => hacer(e.currentTarget, () => api('DELETE', '/archivos/' + a.id), 'Archivo borrado.').then((ok) => ok && recargar()) }, 'Borrar') : null)),
+        h('span', { class: 'cuando' }, `${tamano(a.tamano)} · ${a.persona || 'Alguien'} · ${momento(a.fecha)}`))))
+      : h('p', { class: 'sub' }, 'Todavía no hay archivos.'),
+    h('label', { for: 'a-archivo' }, 'Agregar archivos (PDF, planos, planillas… hasta 20 MB)', subirArchivo));
+
   // Comentarios e historial
   const comentario = h('textarea', { id: 'c-texto', maxlength: 1000, required: true, placeholder: 'Escribí una pregunta o aclaración' });
   const cajaHistorial = h('section', { class: 'caja' },
@@ -580,7 +640,7 @@ async function vistaTarea(id) {
         chipEstado(t),
         t.prioridad !== 'media' ? h('span', { class: 'chip' + (t.prioridad === 'alta' ? ' mal' : '') }, 'Prioridad ' + t.prioridad) : null,
         h('span', null, 'Cargada el ' + dia(t.creada)))),
-    presupuesto, avance, cajaFotos, cajaHistorial, edicion,
+    presupuesto, avance, cajaFotos, cajaArchivos, cajaHistorial, edicion,
   );
 }
 
@@ -692,6 +752,7 @@ async function vistaPersonas() {
           h('span', { class: 'fila entre' },
             h('span', null, h('strong', null, p.nombre), ` · ${rotulo(p)}`, p.id === yo.id ? ' (vos)' : '', p.activa ? '' : ' · dada de baja'),
             h('span', { class: 'fila' },
+              p.activa && p.id !== yo.id ? h('a', { class: 'boton chico', href: linkDeWhatsApp(`Hola ${p.nombre}, te paso tu link para entrar a ${obra.nombre} en Construir: ${link(p)}`), target: '_blank', rel: 'noopener' }, 'WhatsApp') : null,
               p.activa ? h('button', { class: 'chico', type: 'button', onclick: () => copiar(p) }, 'Copiar link') : null,
               p.id !== yo.id ? h('button', {
                 class: 'chico' + (p.activa ? ' peligro' : ''), type: 'button',
@@ -1024,6 +1085,8 @@ async function vistaInicio() {
     const nombre = h('input', { id: 'pr-nombre', type: 'text', maxlength: 60, required: true, placeholder: 'Nombre del proveedor' });
     const rubro = h('input', { id: 'pr-rubro', type: 'text', maxlength: 40, required: true, list: 'rubros', placeholder: 'Plomería, electricidad…' });
     const lugar = h('input', { id: 'pr-lugar', type: 'text', maxlength: 60, placeholder: 'Baño, cocina, toda la sede…' });
+    const whatsapp = h('input', { id: 'pr-whatsapp', type: 'tel', inputmode: 'tel', maxlength: 25, placeholder: '54 9 11 1234 5678' });
+    const adjuntos = h('input', { id: 'pr-adjuntos', type: 'file', multiple: true, accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.dwg,.dxf,.zip,image/*' });
     const trabajos = h('textarea', { id: 'pr-trabajos', required: true, rows: 4, placeholder: 'Un trabajo por renglón.\nCambiar flexibles del baño\nDestapar rejilla del patio' });
     v.cuerpo.append(h('form', {
       class: 'rejilla',
@@ -1038,18 +1101,24 @@ async function vistaInicio() {
           });
         });
         if (!ok) return;
+        const elegidos = [...adjuntos.files];
+        let subidos = true;
+        if (elegidos.length) subidos = await hacer(e.submitter, () => subirAdjuntos(destino.token, alta.ids[0], elegidos, 'antes'));
         const link = `${location.origin}/#k=${alta.token}`;
         const mensaje = `Hola ${nombre.value.trim()}, te paso el link para ver el trabajo de ${rubro.value.trim()} en ${destino.obra.nombre}: ${link}`;
         const campo = h('input', { id: 'pr-link', type: 'text', readonly: true, value: link, 'aria-label': 'Link del proveedor' });
         v.cuerpo.replaceChildren(
           h('p', null, h('strong', null, nombre.value.trim()), ` quedó como proveedor de ${rubro.value.trim()} en `, h('strong', null, destino.obra.nombre),
             `, con ${alta.tareas} ${alta.tareas === 1 ? 'trabajo encargado' : 'trabajos encargados'}.`),
-          h('p', { class: 'sub' }, 'Con este link entra a la app y ve solo su trabajo: lo presupuesta, le pone fecha de entrega, sube fotos y lo marca cuando lo termina. No ve el resto de la obra.'),
+          elegidos.length ? h('p', { class: subidos ? 'sub' : 'nota' }, subidos
+            ? `Las fotos y archivos (${elegidos.length}) quedaron en el primer trabajo.`
+            : 'El proveedor se creó, pero no se pudieron subir todas las fotos y archivos. Subilos desde la tarea.') : null,
+          h('p', { class: 'sub' }, 'Mandale este link por WhatsApp. Con solo abrirlo entra a la app, sin usuario ni contraseña, y ve únicamente su trabajo: lo presupuesta, le pone fecha de entrega, sube fotos y archivos y lo marca cuando lo termina.'),
           campo,
           h('div', { class: 'fila' },
-            navigator.share ? h('button', { class: 'principal', type: 'button', onclick: () => navigator.share({ text: mensaje }).catch(() => {}) }, 'Compartir') : null,
+            h('a', { class: 'boton principal', href: linkDeWhatsApp(mensaje, whatsapp.value), target: '_blank', rel: 'noopener' }, 'Enviar por WhatsApp'),
             h('button', {
-              class: navigator.share ? null : 'principal', type: 'button',
+              type: 'button',
               onclick: async () => {
                 try { await navigator.clipboard.writeText(mensaje); avisar('Mensaje con el link copiado. Pegalo en WhatsApp.'); } catch { campo.select(); avisar('Mantené apretado el link para copiarlo.'); }
               },
@@ -1063,6 +1132,8 @@ async function vistaInicio() {
       h('datalist', { id: 'rubros' }, RUBROS.map((r) => h('option', { value: r }))),
       h('label', { class: 'ancho', for: 'pr-lugar' }, 'Lugar (opcional)', lugar),
       h('label', { class: 'ancho', for: 'pr-trabajos' }, 'Trabajo que le encargás', trabajos),
+      h('label', { class: 'ancho', for: 'pr-adjuntos' }, 'Fotos y archivos del trabajo (opcional)', adjuntos),
+      h('label', { class: 'ancho', for: 'pr-whatsapp' }, 'WhatsApp del proveedor, con código de país (opcional)', whatsapp),
       h('button', { class: 'principal ancho', type: 'submit' }, 'Crear proveedor y su link')));
     nombre.focus();
   }

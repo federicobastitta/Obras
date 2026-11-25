@@ -14,6 +14,9 @@ const TIPOS = {
 };
 const MAX_JSON = 64 * 1024;
 const MAX_FOTO = 4 * 1024 * 1024;
+const MAX_ARCHIVO = 20 * 1024 * 1024;
+// Lo que se puede adjuntar a una tarea. Siempre se entrega como descarga, nunca se abre dentro de la app.
+const EXTENSIONES = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv', 'txt', 'dwg', 'dxf', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'zip'];
 const ROLES = ['propietario', 'arquitecto', 'constructor'];
 
 class ErrorHttp extends Error {
@@ -83,13 +86,16 @@ async function leerJson(req) {
 
 export function crearApp({ dirDatos, dirWeb }) {
   fs.mkdirSync(path.join(dirDatos, 'fotos'), { recursive: true });
+  fs.mkdirSync(path.join(dirDatos, 'archivos'), { recursive: true });
   const db = abrirBase(path.join(dirDatos, 'obras.db'));
   const dirFotos = path.join(dirDatos, 'fotos');
+  const dirArchivos = path.join(dirDatos, 'archivos');
 
   const q = {
     persona: db.prepare('SELECT p.*, o.nombre AS obra_nombre, o.tipo AS obra_tipo FROM personas p JOIN obras o ON o.id = p.obra_id WHERE p.token = ? AND p.activa = 1'),
     tareas: db.prepare(`SELECT t.*,
         (SELECT COUNT(*) FROM fotos f WHERE f.tarea_id = t.id) AS fotos,
+        (SELECT COUNT(*) FROM archivos a WHERE a.tarea_id = t.id) AS archivos,
         (SELECT COUNT(*) FROM eventos e WHERE e.tarea_id = t.id AND e.tipo = 'comentario') AS comentarios,
         (SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.tarea_id = t.id) AS pagado,
         pa.nombre AS asignada_nombre, pa.rubro AS asignada_rubro
@@ -299,6 +305,8 @@ export function crearApp({ dirDatos, dirWeb }) {
           tarea: t,
           grupo: t.grupo_id ? q.grupo.get(t.grupo_id, p.obra_id) : null,
           eventos: q.eventos.all(t.id),
+          archivos: db.prepare(`SELECT a.id, a.nombre, a.tamano, a.fecha, a.persona_id, p.nombre AS persona
+            FROM archivos a LEFT JOIN personas p ON p.id = a.persona_id WHERE a.tarea_id = ? ORDER BY a.id`).all(t.id),
           fotos: q.fotos.all(t.id),
           pagos: q.pagos.all(t.id),
         });
@@ -324,9 +332,11 @@ export function crearApp({ dirDatos, dirWeb }) {
       }
       if (m === 'DELETE') {
         soloDireccion(p);
-        const archivos = db.prepare('SELECT archivo FROM fotos WHERE tarea_id = ?').all(t.id);
+        const susFotos = db.prepare('SELECT archivo FROM fotos WHERE tarea_id = ?').all(t.id);
+        const susArchivos = db.prepare('SELECT archivo FROM archivos WHERE tarea_id = ?').all(t.id);
         db.prepare('DELETE FROM tareas WHERE id = ?').run(t.id);
-        for (const f of archivos) fs.rm(path.join(dirFotos, f.archivo), { force: true }, () => {});
+        for (const f of susFotos) fs.rm(path.join(dirFotos, f.archivo), { force: true }, () => {});
+        for (const f of susArchivos) fs.rm(path.join(dirArchivos, f.archivo), { force: true }, () => {});
         return responder(200, { ok: true });
       }
     }
@@ -341,6 +351,20 @@ export function crearApp({ dirDatos, dirWeb }) {
         const c = await leerJson(req);
         anotar(t.id, p, 'comentario', texto(c.texto, 1000, { requerido: true, nombre: 'El comentario' }));
         return responder(201, { ok: true });
+      }
+      if (b === 'archivos' && m === 'POST') {
+        const nombre = texto(url.searchParams.get('nombre'), 150, { requerido: true, nombre: 'El nombre del archivo' }).replace(/[\\/\u0000-\u001f]/g, '_');
+        const ext = (nombre.match(/\.([A-Za-z0-9]{1,5})$/) || [])[1]?.toLowerCase();
+        if (!EXTENSIONES.includes(ext)) throw falla(400, `Ese tipo de archivo no se puede subir. Se aceptan: ${EXTENSIONES.join(', ')}.`);
+        const cuerpo = await leerCuerpo(req, MAX_ARCHIVO);
+        if (!cuerpo.length) throw falla(400, 'El archivo está vacío.');
+        const archivo = `${t.id}-${nuevoToken().slice(0, 16)}`;
+        fs.writeFileSync(path.join(dirArchivos, archivo), cuerpo);
+        const nuevo = db
+          .prepare('INSERT INTO archivos (tarea_id, persona_id, nombre, archivo, tamano, fecha) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(t.id, p.id, nombre, archivo, cuerpo.length, ahora()).lastInsertRowid;
+        anotar(t.id, p, 'archivo', nombre);
+        return responder(201, { id: Number(nuevo) });
       }
       if (b === 'fotos' && m === 'POST') {
         const cuerpo = await leerCuerpo(req, MAX_FOTO);
@@ -483,6 +507,31 @@ export function crearApp({ dirDatos, dirWeb }) {
       }
     }
 
+    if (a === 'archivos' && id) {
+      const f = db
+        .prepare('SELECT a.*, t.obra_id, t.asignada_a FROM archivos a JOIN tareas t ON t.id = a.tarea_id WHERE a.id = ?')
+        .get(Number(id));
+      if (!f || f.obra_id !== p.obra_id || (p.limitado && f.asignada_a !== p.id)) throw falla(404, 'No se encontró el archivo.');
+      if (m === 'GET') {
+        const ruta = path.join(dirArchivos, f.archivo);
+        if (!fs.existsSync(ruta)) throw falla(404, 'No se encontró el archivo.');
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.nombre)}`,
+          'X-Content-Type-Options': 'nosniff',
+          'Cache-Control': 'private, no-store',
+        });
+        return fs.createReadStream(ruta).pipe(res);
+      }
+      if (m === 'DELETE') {
+        if (!esDireccion(p) && f.persona_id !== p.id) throw falla(403, 'Solo puede borrar el archivo quien lo subió, el propietario o el arquitecto.');
+        db.prepare('DELETE FROM archivos WHERE id = ?').run(f.id);
+        fs.rm(path.join(dirArchivos, f.archivo), { force: true }, () => {});
+        anotar(f.tarea_id, p, 'archivo_borrado', f.nombre);
+        return responder(200, { ok: true });
+      }
+    }
+
     if (a === 'fotos' && id) {
       const f = db
         .prepare('SELECT f.*, t.obra_id, t.asignada_a FROM fotos f JOIN tareas t ON t.id = f.tarea_id WHERE f.id = ?')
@@ -514,16 +563,21 @@ export function crearApp({ dirDatos, dirWeb }) {
       if (!trabajos.length) throw falla(400, 'Escribí al menos un trabajo para encargarle.');
       if (trabajos.length > 50) throw falla(400, 'Son demasiados trabajos juntos: cargá hasta 50 por vez.');
       const tk = nuevoToken();
+      const creadas = [];
       const personaId = enTransaccion(() => {
         const t0 = ahora();
         const nuevo = db
           .prepare("INSERT INTO personas (obra_id, nombre, rol, rubro, limitado, token, creada) VALUES (?, ?, 'constructor', ?, 1, ?, ?)")
           .run(p.obra_id, nombre, rubro, tk, t0).lastInsertRowid;
         const poner = db.prepare('INSERT INTO tareas (obra_id, lugar, texto, asignada_a, creada_por, creada) VALUES (?, ?, ?, ?, ?, ?)');
-        for (const x of trabajos) anotar(poner.run(p.obra_id, lugar, x, nuevo, p.id, t0).lastInsertRowid, p, 'creada', `encargada a ${nombre} (${rubro})`);
+        for (const x of trabajos) {
+          const tareaId = poner.run(p.obra_id, lugar, x, nuevo, p.id, t0).lastInsertRowid;
+          creadas.push(Number(tareaId));
+          anotar(tareaId, p, 'creada', `encargada a ${nombre} (${rubro})`);
+        }
         return nuevo;
       });
-      return responder(201, { id: Number(personaId), token: tk, tareas: trabajos.length });
+      return responder(201, { id: Number(personaId), token: tk, tareas: trabajos.length, ids: creadas });
     }
 
     if (a === 'personas') {

@@ -157,6 +157,7 @@ test('proveedores: entran con su link y ven solo el trabajo que se les encargó'
   const alta = await pedir(duena, 'POST', '/api/proveedores', { nombre: 'Pedro', rubro: 'Plomería', lugar: 'Baño', tareas: ['Cambiar flexibles', ' ', 'Destapar rejilla'] });
   assert.equal(alta.codigo, 201);
   assert.equal(alta.datos.tareas, 2);
+  assert.equal(alta.datos.ids.length, 2);
   const plomero = alta.datos.token;
   const yo = (await pedir(plomero, 'GET', '/api/yo')).datos.persona;
   assert.deepEqual([yo.rol, yo.rubro, yo.limitado], ['constructor', 'Plomería', true]);
@@ -209,6 +210,27 @@ test('obras nuevas: las crea quien dirige, y arrancan vacías y separadas', asyn
   assert.equal((await pedir(duena, 'GET', '/api/yo')).datos.obra.nombre, 'Casa de prueba', 'no toca otras obras');
   assert.equal((await pedir(alta.datos.token, 'GET', '/api/tareas/' + tareaId)).codigo, 404);
   assert.ok((await pedir(duena, 'GET', '/api/tareas')).datos.tareas.length >= 1);
+});
+
+test('archivos adjuntos: se suben por tipo permitido, se bajan como descarga y respetan los accesos', async () => {
+  const pdf = Buffer.from('%PDF-1.4 plano de prueba');
+  const ruta = `/api/tareas/${tareaId}/archivos?nombre=${encodeURIComponent('Plano baño.pdf')}`;
+  assert.equal((await pedir(duena, 'POST', `/api/tareas/${tareaId}/archivos?nombre=virus.exe`, pdf)).codigo, 400);
+  assert.equal((await pedir(duena, 'POST', `/api/tareas/${tareaId}/archivos?nombre=pagina.html`, pdf)).codigo, 400);
+  const sub = await pedir(duena, 'POST', ruta, pdf);
+  assert.equal(sub.codigo, 201);
+  const r = await fetch(`${base}/api/archivos/${sub.datos.id}`, { headers: { Authorization: 'Bearer ' + constructor } });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'application/octet-stream');
+  assert.match(r.headers.get('content-disposition'), /^attachment; filename\*=UTF-8''Plano%20ba%C3%B1o\.pdf$/);
+  assert.ok(Buffer.from(await r.arrayBuffer()).equals(pdf));
+  const d = (await pedir(constructor, 'GET', '/api/tareas/' + tareaId)).datos;
+  assert.deepEqual(d.archivos.map((a) => [a.nombre, a.tamano, a.persona]), [['Plano baño.pdf', pdf.length, 'Dueña']]);
+  assert.equal((await pedir(duena, 'GET', '/api/tareas')).datos.tareas.find((t) => t.id === tareaId).archivos, 1);
+  assert.equal((await pedir(otra.token, 'GET', '/api/archivos/' + sub.datos.id)).codigo, 404, 'otra obra no lo ve');
+  assert.equal((await pedir(constructor, 'DELETE', '/api/archivos/' + sub.datos.id)).codigo, 403, 'no lo subió él');
+  assert.equal((await pedir(duena, 'DELETE', '/api/archivos/' + sub.datos.id)).codigo, 200);
+  assert.equal((await pedir(duena, 'GET', '/api/archivos/' + sub.datos.id)).codigo, 404);
 });
 
 test('dar de baja a una persona le corta el acceso', async () => {
