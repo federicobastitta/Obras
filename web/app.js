@@ -11,6 +11,57 @@ let grupos = [];
 let filtro = null;
 let urlsDeFotos = [];
 
+// ---------- movimiento de las fotos ----------
+// Al inclinar el celular las fotos se desplazan un poco, como si fueran una ventana. En la computadora sigue al mouse.
+const tilt = { x: 0, y: 0, ox: 0, oy: 0, base: null, recibido: false, raf: 0 };
+const sinMovimiento = matchMedia('(prefers-reduced-motion: reduce)');
+const limitar = (n) => Math.max(-1, Math.min(1, n));
+function animarTilt() {
+  tilt.x += (tilt.ox - tilt.x) * 0.12;
+  tilt.y += (tilt.oy - tilt.y) * 0.12;
+  const r = document.documentElement.style;
+  r.setProperty('--mx', tilt.x.toFixed(3));
+  r.setProperty('--my', tilt.y.toFixed(3));
+  tilt.raf = Math.abs(tilt.ox - tilt.x) > 0.002 || Math.abs(tilt.oy - tilt.y) > 0.002 ? requestAnimationFrame(animarTilt) : 0;
+}
+function alInclinar(e) {
+  if (e.gamma == null || e.beta == null || sinMovimiento.matches) return;
+  tilt.recibido = true;
+  document.getElementById('mover')?.remove();
+  if (!tilt.base) tilt.base = { b: e.beta, g: e.gamma };
+  // La posición de reposo se va ajustando sola, para que siga la forma en que se agarra el celular.
+  tilt.base.b += (e.beta - tilt.base.b) * 0.004;
+  tilt.base.g += (e.gamma - tilt.base.g) * 0.004;
+  tilt.ox = limitar((e.gamma - tilt.base.g) / 22);
+  tilt.oy = limitar((e.beta - tilt.base.b) / 22);
+  if (!tilt.raf) tilt.raf = requestAnimationFrame(animarTilt);
+}
+function alMoverMouse(e) {
+  if (e.pointerType !== 'mouse' || sinMovimiento.matches) return;
+  tilt.ox = limitar((e.clientX / innerWidth - 0.5) * 2);
+  tilt.oy = limitar((e.clientY / innerHeight - 0.5) * 2);
+  if (!tilt.raf) tilt.raf = requestAnimationFrame(animarTilt);
+}
+const pideAutorizacion = () => typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
+/** En iPhone el sensor solo manda datos después de que la persona da permiso, y el permiso se pide con un toque. */
+async function activarMovimiento() {
+  if (sinMovimiento.matches) return false;
+  if (pideAutorizacion()) {
+    try { if ((await DeviceOrientationEvent.requestPermission()) !== 'granted') return false; } catch { return false; }
+  }
+  try { localStorage.setItem('construir.movimiento', '1'); } catch {}
+  return true;
+}
+// El sensor se escucha siempre: en Android y en la computadora los datos llegan solos; en iPhone llegan cuando se da el permiso.
+window.addEventListener('deviceorientation', alInclinar);
+window.addEventListener('pointermove', alMoverMouse, { passive: true });
+if (pideAutorizacion()) {
+  // Si ya lo activó antes, se vuelve a pedir en el primer toque.
+  let antes = false;
+  try { antes = localStorage.getItem('construir.movimiento') === '1'; } catch {}
+  if (antes) window.addEventListener('pointerdown', () => activarMovimiento(), { once: true });
+}
+
 const ESTADOS = {
   pendiente: ['Sin presupuesto', 'pend'],
   presupuestada: ['Presupuesto a aprobar', 'info'],
@@ -36,6 +87,7 @@ const TIPOS_DE_OBRA = ['Vivienda', 'Clínica o consultorio', 'Local comercial', 
 const RUBROS = ['Plomería', 'Electricidad', 'Albañilería', 'Pintura', 'Carpintería', 'Herrería', 'Gas', 'Durlock y yesería', 'Pisos y revestimientos', 'Aire acondicionado', 'Pileta', 'Jardinería', 'Vidrios y aberturas', 'Techos e impermeabilización'];
 /** Cómo se nombra a una persona según su rol: un constructor con acceso limitado es un proveedor de un rubro. */
 const rotulo = (p) => (p.limitado ? `Proveedor${p.rubro ? ' · ' + p.rubro : ''}` : ROLES[p.rol] + (p.rubro ? ' · ' + p.rubro : ''));
+const CLAVE_TIPO = { 'Vivienda': 'vivienda', 'Clínica o consultorio': 'clinica', 'Local comercial': 'local', 'Oficina': 'oficina', 'Edificio': 'edificio', 'Industria o depósito': 'industria', 'Espacio exterior': 'exterior' };
 const ROLES = { propietario: 'Propietario', arquitecto: 'Arquitecto', constructor: 'Constructor' };
 const EVENTOS = {
   creada: 'cargó la tarea',
@@ -72,6 +124,9 @@ function h(etiqueta, attrs, ...hijos) {
   }
   return n;
 }
+/** Como Node.append / replaceChildren pero ignorando null y false (los nativos escriben la palabra «null»). */
+const anexar = (padre, ...hijos) => { for (const x of hijos.flat()) if (x != null && x !== false) padre.append(x); };
+const reemplazar = (padre, ...hijos) => { padre.replaceChildren(); anexar(padre, ...hijos); };
 const dosDigitos = (n) => String(n).padStart(2, '0');
 function dia(iso) {
   if (!iso) return '';
@@ -487,7 +542,7 @@ async function vistaTarea(id) {
   const presupuesto = h('section', { class: 'caja' }, h('h2', null, 'Presupuesto y entrega'));
   const origen = grupo || (t.monto != null ? t : null);
   if (origen) {
-    presupuesto.append(
+    anexar(presupuesto, 
       grupo ? h('p', { class: 'sub' }, `Presupuestada junto con otras tareas, en el grupo «${grupo.nombre}»`) : null,
       h('div', { class: 'fila' }, h('span', { class: 'grande' }, plata(origen.monto, origen.moneda)), chipPresupuesto(grupo ? grupo.estado : estadoPresupuesto(t))),
       h('p', { class: 'sub' }, h('span', { class: vencida(t) ? 'vencida' : null }, 'Fecha de entrega: ' + dia(origen.plazo))),
@@ -495,7 +550,7 @@ async function vistaTarea(id) {
         h('button', { type: 'button', onclick: () => abrirPresupuesto(grupo ? { grupo: grupo.id } : { tarea: t.id }, recargar) }, 'Ver presupuesto')),
     );
   } else {
-    presupuesto.append(
+    anexar(presupuesto, 
       h('p', { class: 'sub' }, esConstructor() ? 'Todavía no cargaste el presupuesto.' : 'El constructor todavía no cargó el presupuesto.'),
       esConstructor() && t.estado === 'pendiente' ? h('div', { class: 'fila' }, h('a', { class: 'boton', href: '#/presupuestos' }, 'Ir a la hoja de presupuestos')) : null,
     );
@@ -506,13 +561,13 @@ async function vistaTarea(id) {
   const lineas = [];
   if (t.realizada_en) lineas.push(`Realizada el ${dia(t.realizada_en)}`);
   if (t.verificada_en) lineas.push(`Verificada el ${dia(t.verificada_en)}`);
-  avance.append(h('p', { class: 'sub' }, lineas.length ? lineas.join(' · ') : 'Todavía no se hizo.'));
-  if (t.estado === 'devuelta' && t.motivo) avance.append(h('p', { class: 'nota' }, 'Devuelta: ' + t.motivo));
+  anexar(avance, h('p', { class: 'sub' }, lineas.length ? lineas.join(' · ') : 'Todavía no se hizo.'));
+  if (t.estado === 'devuelta' && t.motivo) anexar(avance, h('p', { class: 'nota' }, 'Devuelta: ' + t.motivo));
   if (esConstructor() && ['pendiente', 'aprobada', 'devuelta'].includes(t.estado)) {
-    avance.append(h('div', { class: 'fila' },
+    anexar(avance, h('div', { class: 'fila' },
       h('button', { class: 'bien', type: 'button', onclick: (e) => accion(e.currentTarget, { accion: 'realizada' }, 'Marcada como realizada.') }, 'Marcar como realizada')));
   }
-  if (esConstructor() && t.estado === 'presupuestada') avance.append(h('p', { class: 'sub' }, 'Vas a poder marcarla como realizada cuando aprueben el presupuesto.'));
+  if (esConstructor() && t.estado === 'presupuestada') anexar(avance, h('p', { class: 'sub' }, 'Vas a poder marcarla como realizada cuando aprueben el presupuesto.'));
   if (esDireccion()) {
     const botones = [];
     if (t.estado !== 'verificada') {
@@ -525,7 +580,7 @@ async function vistaTarea(id) {
       botones.push(b);
       formDevolver = f;
     }
-    avance.append(h('div', { class: 'fila' }, botones), formDevolver);
+    anexar(avance, h('div', { class: 'fila' }, botones), formDevolver);
   }
 
   // Fotos
@@ -1129,7 +1184,7 @@ async function vistaInicio() {
         const link = `${location.origin}/#k=${alta.token}`;
         const mensaje = `Hola ${nombre.value.trim()}, te paso el link para ver el trabajo de ${rubro.value.trim()} en ${destino.obra.nombre}: ${link}`;
         const campo = h('input', { id: 'pr-link', type: 'text', readonly: true, value: link, 'aria-label': 'Link del proveedor' });
-        v.cuerpo.replaceChildren(
+        reemplazar(v.cuerpo, 
           h('p', null, h('strong', null, nombre.value.trim()), ` quedó como proveedor de ${rubro.value.trim()} en `, h('strong', null, destino.obra.nombre),
             `, con ${alta.tareas} ${alta.tareas === 1 ? 'trabajo encargado' : 'trabajos encargados'}.`),
           elegidos.length ? h('p', { class: subidos ? 'sub' : 'nota' }, subidos
@@ -1180,19 +1235,64 @@ async function vistaInicio() {
     link.focus();
   }
 
+  // ----- datos de demostración -----
+  const hayDemo = fichas.some((f) => f.obra.demo);
+  function cargarDemoUI() {
+    const v = ventana('Datos de demostración');
+    v.cuerpo.append(
+      h('p', null, 'Crea dos obras de ejemplo, Casa Los Álamos y Clínica Norte, con todo cargado: tareas en todos los estados, presupuestos por tarea y en grupo, pagos, fotos, archivos, proveedores y comentarios.'),
+      h('p', { class: 'sub' }, 'Tus obras reales no se tocan. Las de demostración llevan la marca «Demo» y las podés borrar cuando quieras.'),
+      h('div', { class: 'fila' },
+        h('button', {
+          class: 'principal', type: 'button',
+          onclick: async (e) => {
+            const ok = await hacer(e.currentTarget, async () => {
+              const r = await api('POST', '/demo');
+              guardarAccesos([...accesos(), ...r.obras.map((o) => ({ token: o.token, obra: o.nombre, tipo: o.tipo, persona: yo.nombre, rol: 'propietario', rubro: '', limitado: false }))]);
+            }, 'Demostración cargada.');
+            if (ok) { v.cerrar(); vistaInicio(); }
+          },
+        }, 'Cargar demostración'),
+        h('button', { type: 'button', onclick: () => v.cerrar() }, 'Cancelar')));
+  }
+  function quitarDemoUI() {
+    const demoTokens = new Set(fichas.filter((f) => f.obra.demo).map((f) => f.token));
+    const v = ventana('Quitar la demostración');
+    v.cuerpo.append(
+      h('p', null, 'Se borran las obras de demostración con todo lo que tienen cargado: tareas, presupuestos, pagos, fotos y archivos. No se puede deshacer.'),
+      h('p', { class: 'sub' }, 'Tus obras reales no se tocan.'),
+      h('div', { class: 'fila' },
+        h('button', {
+          class: 'peligro', type: 'button',
+          onclick: async (e) => {
+            const ok = await hacer(e.currentTarget, () => api('DELETE', '/demo'), 'Demostración borrada.');
+            if (!ok) return;
+            v.cerrar();
+            const quedan = accesos().filter((x) => !demoTokens.has(x.token));
+            guardarAccesos(quedan);
+            if (!demoTokens.has(token)) vistaInicio();
+            else if (quedan.length) cambiarDeObra(quedan[0].token);
+            else { try { localStorage.removeItem(CLAVE); } catch {} token = null; yo = null; pantallaIngreso(); }
+          },
+        }, 'Sí, borrar la demostración'),
+        h('button', { type: 'button', onclick: () => v.cerrar() }, 'Cancelar')));
+  }
+
   // ----- cuadros -----
   const accion = (titulo, detalle, alTocar) => h('button', { class: 'cuadro accion', type: 'button', onclick: alTocar },
     h('span', { class: 'mas', 'aria-hidden': 'true' }, '+'), h('strong', null, titulo), h('span', { class: 'sub' }, detalle));
-  const dato = (valor, texto, clase) => h('div', { class: 'cuadro dato' + (clase && valor ? ' ' + clase : '') }, h('span', { class: 'cifra' }, valor), h('span', { class: 'sub' }, texto));
+  const dato = (valor, texto, clase) => h('div', { class: 'numero' + (clase && valor ? ' ' + clase : '') }, h('span', { class: 'cifra' }, valor), h('span', { class: 'sub' }, texto));
 
   const cuadrosDeObra = fichas.map((f) => {
     const avance = f.total ? Math.round((f.hechas / f.total) * 100) : 0;
     const dirige = dirigidas.includes(f);
-    return h('div', { class: 'carpeta' },
+    const cinta = h('span', { class: 'cinta', role: 'img', 'aria-label': `Avance: ${avance}%` });
+    cinta.style.setProperty('--avance', avance);
+    return h('div', { class: 'carpeta', 'data-tipo': CLAVE_TIPO[f.obra.tipo] || 'otra' },
+      h('span', { class: 'solapa' }, f.obra.tipo || 'Tipo sin definir'),
       h('button', { class: 'cuadro obra', type: 'button', onclick: () => cambiarDeObra(f.token, 'tareas'), 'aria-label': `Abrir ${f.obra.nombre}` },
-        h('span', { class: 'tipo' }, f.obra.tipo || 'Tipo sin definir'),
-        h('strong', { class: 'texto' }, f.obra.nombre),
-        f.error ? h('span', { class: 'chip mal' }, 'No se pudo leer') : h('progress', { max: 100, value: avance, 'aria-label': `Avance: ${avance}%` }),
+        h('strong', { class: 'texto' }, f.obra.nombre, f.obra.demo ? h('span', { class: 'chip pend' }, 'Demo') : null),
+        f.error ? h('span', { class: 'chip mal' }, 'No se pudo leer') : cinta,
         f.error ? null : h('span', { class: 'sub' }, f.total ? `${avance}% · ${f.hechas} de ${f.total}` : 'Sin tareas todavía'),
         h('span', { class: 'datos' },
           f.tocan ? h('span', { class: 'chip info' }, `${f.tocan} para vos`) : null,
@@ -1252,11 +1352,24 @@ async function vistaInicio() {
   ];
 
   // ----- fotos de obra -----
+  function botonMovimiento() {
+    const b = h('button', {
+      id: 'mover', class: 'chico', type: 'button', hidden: true,
+      onclick: async (e) => {
+        if (await activarMovimiento()) { e.currentTarget.remove(); avisar('Movimiento activado. Inclinás el celular y las fotos se mueven.'); }
+        else avisar('No se dio permiso para el movimiento. Se puede cambiar en los ajustes del navegador.', true);
+      },
+    }, 'Activar el movimiento de las fotos');
+    // En Android y en la computadora el movimiento llega solo; el botón aparece únicamente si no llegó nada (iPhone).
+    setTimeout(() => { if (!tilt.recibido && b.isConnected) b.hidden = false; }, 1500);
+    return b;
+  }
   const recientes = fichas.flatMap((f) => f.fotos).sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 12);
   const MOMENTO = { antes: 'Antes', despues: 'Después' };
   const porCargar = [];
   const cajaFotos = [
     h('h2', { class: 'grupo' }, 'Fotos de obra', h('small', null, recientes.length ? 'Subidas por los constructores' : '')),
+    recientes.length && pideAutorizacion() && !tilt.recibido && !sinMovimiento.matches ? botonMovimiento() : null,
     recientes.length
       ? h('div', { class: 'fotos grandes' }, recientes.map((f) => {
         const img = h('img', { alt: `Foto de «${f.tarea}» en ${f.obra}`, loading: 'lazy' });
@@ -1268,12 +1381,14 @@ async function vistaInicio() {
   ];
 
   marco('',
-    h('div', { class: 'cuadros' },
+    h('div', { class: 'tablero' },
       dato(suma('tocan'), suma('tocan') === 1 ? 'Espera tu respuesta' : 'Esperan tu respuesta', 'aviso-info'),
       dato(suma('vencidas'), 'Con plazo vencido', 'aviso-mal'),
-      dato(suma('total') - suma('hechas'), 'Tareas abiertas'),
+      dato(suma('total') - suma('hechas'), 'Tareas abiertas')),
+    h('div', { class: 'cuadros acciones' },
       dirigidas.length ? accion('Nueva obra', 'Vivienda, clínica, local…', nuevaObra) : null,
       dirigidas.length ? accion('Nuevo proveedor', 'Plomero, electricista… con su link', nuevoProveedor) : null,
+      dirigidas.length ? (hayDemo ? accion('Quitar la demo', 'Borra las obras de ejemplo', quitarDemoUI) : accion('Datos de demo', 'Obras de ejemplo con todo cargado', cargarDemoUI)) : null,
       accion('Sumar con un link', 'Una obra que te compartieron', sumarConLink)),
     ...cajaAprobar,
     ...cajaVencimientos,

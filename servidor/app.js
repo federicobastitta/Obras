@@ -2,12 +2,14 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { abrirBase, ahora, nuevoToken, TIPOS_DE_OBRA } from './db.js';
+import { cargarDemo } from './demo.js';
 
 const TIPOS = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.webmanifest': 'application/manifest+json',
+  '.woff': 'font/woff',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
@@ -92,7 +94,7 @@ export function crearApp({ dirDatos, dirWeb }) {
   const dirArchivos = path.join(dirDatos, 'archivos');
 
   const q = {
-    persona: db.prepare('SELECT p.*, o.nombre AS obra_nombre, o.tipo AS obra_tipo FROM personas p JOIN obras o ON o.id = p.obra_id WHERE p.token = ? AND p.activa = 1'),
+    persona: db.prepare('SELECT p.*, o.nombre AS obra_nombre, o.tipo AS obra_tipo, o.demo AS obra_demo FROM personas p JOIN obras o ON o.id = p.obra_id WHERE p.token = ? AND p.activa = 1'),
     tareas: db.prepare(`SELECT t.*,
         (SELECT COUNT(*) FROM fotos f WHERE f.tarea_id = t.id) AS fotos,
         (SELECT COUNT(*) FROM archivos a WHERE a.tarea_id = t.id) AS archivos,
@@ -138,6 +140,21 @@ export function crearApp({ dirDatos, dirWeb }) {
       nota: texto(c.nota, 500, { nombre: 'La nota' }),
     };
   }
+
+  /** Borra una obra entera con sus tareas, personas, fotos y archivos. Solo se usa con obras de demostración. */
+  const borrarObra = (obraId) => {
+    const rutas = [
+      ...db.prepare('SELECT f.archivo FROM fotos f JOIN tareas t ON t.id = f.tarea_id WHERE t.obra_id = ?').all(obraId).map((f) => path.join(dirFotos, f.archivo)),
+      ...db.prepare('SELECT a.archivo FROM archivos a JOIN tareas t ON t.id = a.tarea_id WHERE t.obra_id = ?').all(obraId).map((f) => path.join(dirArchivos, f.archivo)),
+    ];
+    enTransaccion(() => {
+      db.prepare('DELETE FROM tareas WHERE obra_id = ?').run(obraId);
+      db.prepare('DELETE FROM grupos WHERE obra_id = ?').run(obraId);
+      db.prepare('DELETE FROM personas WHERE obra_id = ?').run(obraId);
+      db.prepare('DELETE FROM obras WHERE id = ?').run(obraId);
+    });
+    for (const r of rutas) fs.rmSync(r, { force: true });
+  };
 
   const esDireccion = (p) => p.rol === 'propietario' || p.rol === 'arquitecto';
   const soloDireccion = (p) => {
@@ -240,8 +257,22 @@ export function crearApp({ dirDatos, dirWeb }) {
     if (a === 'yo' && m === 'GET') {
       return responder(200, {
         persona: { id: p.id, nombre: p.nombre, rol: p.rol, rubro: p.rubro, limitado: !!p.limitado },
-        obra: { id: p.obra_id, nombre: p.obra_nombre, tipo: p.obra_tipo },
+        obra: { id: p.obra_id, nombre: p.obra_nombre, tipo: p.obra_tipo, demo: !!p.obra_demo },
       });
+    }
+
+    if (a === 'demo' && !id && (m === 'POST' || m === 'DELETE')) {
+      // Obras de demostración: se cargan con todo completo para mostrar la app y se pueden borrar enteras.
+      soloDireccion(p);
+      if (m === 'POST') {
+        if (db.prepare('SELECT COUNT(*) AS n FROM obras WHERE demo = 1').get().n) {
+          throw falla(409, 'Ya hay datos de demostración cargados. Quitalos primero si querés volver a empezar.');
+        }
+        return responder(201, { obras: cargarDemo(db, { dirFotos, dirArchivos, propietario: p.nombre }) });
+      }
+      const borrar = db.prepare('SELECT id FROM obras WHERE demo = 1').all();
+      for (const o of borrar) borrarObra(o.id);
+      return responder(200, { borradas: borrar.length });
     }
 
     if (a === 'obras' && !id && m === 'POST') {

@@ -212,7 +212,7 @@ test('obras nuevas: las crea quien dirige, y arrancan vacías y separadas', asyn
   assert.equal((await pedir(local.datos.token, 'GET', '/api/yo')).datos.obra.tipo, 'Local comercial');
   assert.equal((await pedir(constructor, 'PATCH', '/api/obra', { tipo: 'Oficina' })).codigo, 403);
   assert.equal((await pedir(local.datos.token, 'PATCH', '/api/obra', { nombre: 'Local Lanús', tipo: 'Oficina' })).codigo, 200);
-  assert.deepEqual((await pedir(local.datos.token, 'GET', '/api/yo')).datos.obra, { id: yo.obra.id + 1, nombre: 'Local Lanús', tipo: 'Oficina' });
+  assert.deepEqual((await pedir(local.datos.token, 'GET', '/api/yo')).datos.obra, { id: yo.obra.id + 1, nombre: 'Local Lanús', tipo: 'Oficina', demo: false });
   assert.equal((await pedir(local.datos.token, 'PATCH', '/api/obra', { tipo: 'Castillo' })).datos.obra.tipo, '');
   assert.equal((await pedir(duena, 'GET', '/api/yo')).datos.obra.nombre, 'Casa de prueba', 'no toca otras obras');
   assert.equal((await pedir(alta.datos.token, 'GET', '/api/tareas/' + tareaId)).codigo, 404);
@@ -253,4 +253,51 @@ test('archivos: sirve la página y no deja salir de la carpeta web', async () =>
   assert.equal((await fetch(base + '/salud')).status, 200);
   assert.equal((await fetch(base + '/..%2Fpackage.json')).status, 404);
   assert.equal((await fetch(base + '/%2e%2e/servidor/app.js')).status, 404);
+});
+
+test('demostración: se carga con todo completo, no toca lo real y se borra entera', async () => {
+  const antes = (await pedir(duena, 'GET', '/api/tareas')).datos.tareas.length;
+  const ejecutor = (await pedir(duena, 'POST', '/api/personas', { nombre: 'Tmp', rol: 'constructor' })).datos.token;
+  assert.equal((await pedir(ejecutor, 'POST', '/api/demo')).codigo, 403);
+  const alta = await pedir(duena, 'POST', '/api/demo');
+  assert.equal(alta.codigo, 201);
+  assert.equal(alta.datos.obras.length, 2);
+  assert.equal((await pedir(duena, 'POST', '/api/demo')).codigo, 409, 'no se carga dos veces');
+
+  const [casa, clinica] = alta.datos.obras;
+  const yo = (await pedir(casa.token, 'GET', '/api/yo')).datos;
+  assert.deepEqual([yo.obra.demo, yo.obra.tipo, yo.persona.rol], [true, 'Vivienda', 'propietario']);
+  assert.equal((await pedir(clinica.token, 'GET', '/api/yo')).datos.obra.tipo, 'Clínica o consultorio');
+
+  const d = (await pedir(casa.token, 'GET', '/api/tareas')).datos;
+  const estados = new Set(d.tareas.map((t) => t.estado));
+  for (const e of ['pendiente', 'presupuestada', 'aprobada', 'realizada', 'verificada', 'devuelta']) assert.ok(estados.has(e), 'falta el estado ' + e);
+  assert.ok(d.tareas.length >= 20);
+  assert.deepEqual(d.grupos.map((g) => g.estado).sort(), ['aprobado', 'presupuestado']);
+  assert.ok(d.tareas.some((t) => t.moneda === 'USD'));
+  assert.ok(d.tareas.some((t) => t.pagado > 0) && d.grupos.some((g) => g.pagado > 0));
+  assert.ok(d.tareas.some((t) => t.plazo && t.plazo < new Date().toISOString().slice(0, 10) && !['realizada', 'verificada'].includes(t.estado)), 'hay vencidas');
+  assert.ok(d.tareas.some((t) => t.fotos > 0) && d.tareas.some((t) => t.archivos > 0) && d.tareas.some((t) => t.asignada_rubro === 'Plomería'));
+
+  const fotos = (await pedir(casa.token, 'GET', '/api/fotos')).datos.fotos;
+  assert.ok(fotos.length > 0);
+  const img = await fetch(`${base}/api/fotos/${fotos[0].id}`, { headers: { Authorization: 'Bearer ' + casa.token } });
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.deepEqual([...Buffer.from(await img.arrayBuffer()).subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+
+  const personas = (await pedir(casa.token, 'GET', '/api/personas')).datos.personas;
+  const plomero = personas.find((x) => x.rubro === 'Plomería');
+  const suyas = (await pedir(plomero.token, 'GET', '/api/tareas')).datos.tareas;
+  assert.ok(suyas.length > 0 && suyas.every((t) => t.asignada_rubro === 'Plomería'), 'el proveedor demo ve solo lo suyo');
+
+  assert.equal((await pedir(duena, 'GET', '/api/tareas')).datos.tareas.length, antes, 'la obra real no cambió');
+
+  const borrado = await pedir(duena, 'DELETE', '/api/demo');
+  assert.deepEqual([borrado.codigo, borrado.datos.borradas], [200, 2]);
+  assert.equal((await pedir(casa.token, 'GET', '/api/yo')).codigo, 401);
+  assert.equal((await pedir(plomero.token, 'GET', '/api/yo')).codigo, 401);
+  assert.equal((await pedir(duena, 'GET', '/api/tareas')).datos.tareas.length, antes);
+  const restos = fs.readdirSync(path.join(dirDatos, 'fotos')).concat(fs.readdirSync(path.join(dirDatos, 'archivos')));
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM fotos').get().n, restos.length - fs.readdirSync(path.join(dirDatos, 'archivos')).length, 'no quedan fotos sueltas');
+  assert.equal((await pedir(duena, 'POST', '/api/demo')).codigo, 201, 'se puede volver a cargar');
 });
