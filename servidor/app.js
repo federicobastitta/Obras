@@ -107,9 +107,16 @@ export function crearApp({ dirDatos, dirWeb, sistemas = SISTEMAS, pedir = fetch,
         (SELECT COUNT(*) FROM archivos a WHERE a.tarea_id = t.id) AS archivos,
         (SELECT COUNT(*) FROM eventos e WHERE e.tarea_id = t.id AND e.tipo = 'comentario') AS comentarios,
         (SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.tarea_id = t.id) AS pagado,
-        pa.nombre AS asignada_nombre, pa.rubro AS asignada_rubro
-      FROM tareas t LEFT JOIN personas pa ON pa.id = t.asignada_a WHERE t.obra_id = ? ORDER BY t.id`),
-    tarea: db.prepare('SELECT * FROM tareas WHERE id = ? AND obra_id = ?'),
+        pa.nombre AS asignada_nombre, pa.rubro AS asignada_rubro,
+        pc.nombre AS pedida_por,
+        CASE WHEN pc.externo LIKE 'fc:%' THEN 'FC' WHEN pc.externo LIKE 'conectar:%' THEN 'Conectar' ELSE '' END AS pedida_desde
+      FROM tareas t LEFT JOIN personas pa ON pa.id = t.asignada_a LEFT JOIN personas pc ON pc.id = t.creada_por
+      WHERE t.obra_id = ? ORDER BY t.id`),
+    // Quién pidió cada arreglo (dueño 25/11/2026: «tiene que quedar registrado quién hizo el pedido de cada arreglo»).
+    tarea: db.prepare(`SELECT t.*,
+        pc.nombre AS pedida_por,
+        CASE WHEN pc.externo LIKE 'fc:%' THEN 'FC' WHEN pc.externo LIKE 'conectar:%' THEN 'Conectar' ELSE '' END AS pedida_desde
+      FROM tareas t LEFT JOIN personas pc ON pc.id = t.creada_por WHERE t.id = ? AND t.obra_id = ?`),
     evento: db.prepare('INSERT INTO eventos (tarea_id, persona_id, tipo, detalle, fecha) VALUES (?, ?, ?, ?, ?)'),
     eventos: db.prepare(`SELECT e.id, e.tipo, e.detalle, e.fecha, p.nombre AS persona, p.rol
       FROM eventos e LEFT JOIN personas p ON p.id = e.persona_id WHERE e.tarea_id = ? ORDER BY e.id`),
