@@ -8,7 +8,7 @@ WorkingDirectory=/opt/obras
 Environment=PUERTO=3400
 Environment=DIR_DATOS=/var/lib/obras
 EnvironmentFile=-/etc/obras/obras.env
-ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning servidor/index.js
+ExecStart=/opt/obras-node/bin/node --disable-warning=ExperimentalWarning servidor/index.js
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
